@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音直播多房间转化效能并排监控 (山势面积图)</title>
+    <title>抖音直播指标监控表格 (GPM 与 观看-成交率)</title>
     <style>
         :root {
             --bg-color: #0b0f19;
             --card-bg: #131b2e;
             --border-color: rgba(255, 255, 255, 0.08);
-            --border-active: rgba(59, 130, 246, 0.4);
             --gpm-color: #f59e0b;
             --ratio-color: #10b981;
             --text-main: #f3f4f6;
@@ -36,7 +35,7 @@
             background: rgba(19, 27, 46, 0.9);
             backdrop-filter: blur(12px);
             border-bottom: 1px solid var(--border-color);
-            padding: 12px 24px;
+            padding: 14px 28px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -83,238 +82,152 @@
             100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
-        /* 最右上角：时间段切换 */
-        .top-controls {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .granularity-selector {
-            display: flex;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.35);
-            padding: 2px;
-            border-radius: 6px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            gap: 2px;
-        }
-
-        .gran-btn {
-            background: transparent;
-            color: #9ca3af;
-            border: none;
-            padding: 4px 10px;
-            border-radius: 4px;
-            font-size: 12px;
-            font-weight: 600;
+        .room-counter {
+            font-size: 13px;
+            color: var(--text-muted);
             font-family: monospace;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .gran-btn:hover {
-            color: #ffffff;
-        }
-
-        .gran-btn.active {
-            background: #2563eb;
-            color: #ffffff;
-            box-shadow: 0 1px 4px rgba(37, 99, 235, 0.5);
         }
 
         main.container {
             flex: 1;
-            padding: 16px 20px;
-            display: flex;
-            flex-direction: column;
+            padding: 24px 28px;
+            max-width: 1200px;
+            margin: 0 auto;
             width: 100%;
         }
 
-        .rooms-grid {
-            display: grid;
-            gap: 16px;
-            width: 100%;
-        }
-
-        .rooms-grid.cols-1 { grid-template-columns: 1fr; }
-        .rooms-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
-        .rooms-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
-        .rooms-grid.cols-multi { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
-
-        .room-card {
+        /* 纯净数据表格容器 */
+        .table-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 16px 18px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            transition: all 0.2s ease;
-        }
-
-        .room-card:hover {
-            border-color: var(--border-active);
-        }
-
-        .room-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-            padding-bottom: 10px;
-        }
-
-        .room-title-group {
-            max-width: 70%;
-        }
-
-        .room-name {
-            font-size: 14px;
-            font-weight: 700;
-            color: #ffffff;
             overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
         }
 
-        .room-meta {
-            font-size: 10px;
-            color: var(--text-muted);
+        table.monitoring-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        table.monitoring-table thead tr {
+            background: rgba(0, 0, 0, 0.35);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        table.monitoring-table th {
+            padding: 14px 20px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #9ca3af;
+            letter-spacing: 0.5px;
+        }
+
+        table.monitoring-table th.col-gpm {
+            color: var(--gpm-color);
+            width: 22%;
+        }
+
+        table.monitoring-table th.col-ratio {
+            color: var(--ratio-color);
+            width: 22%;
+        }
+
+        table.monitoring-table th.col-time {
+            text-align: right;
+            width: 20%;
+        }
+
+        table.monitoring-table th.col-room {
+            width: 36%;
+        }
+
+        table.monitoring-table tbody tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            transition: background-color 0.25s ease;
+        }
+
+        table.monitoring-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        table.monitoring-table td {
+            padding: 16px 20px;
+            vertical-align: middle;
+        }
+
+        .room-cell {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.online {
+            background-color: #10b981;
+            box-shadow: 0 0 6px #10b981;
+        }
+
+        .status-dot.offline {
+            background-color: #ef4444;
+            box-shadow: 0 0 6px #ef4444;
+        }
+
+        .room-name-text {
+            font-size: 15px;
+            font-weight: 700;
+            color: #f3f4f6;
+        }
+
+        .room-id-text {
+            font-size: 11px;
+            color: #6b7280;
             font-family: monospace;
             margin-top: 2px;
         }
 
-        .status-badge {
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: 500;
-        }
-
-        .status-badge.online {
-            background: rgba(16, 185, 129, 0.15);
-            color: var(--ratio-color);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-
-        .status-badge.offline {
-            background: rgba(239, 68, 68, 0.15);
-            color: #ef4444;
-            border: 1px solid rgba(239, 68, 68, 0.3);
-        }
-
-        .kpi-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 10px;
-        }
-
-        .kpi-cell {
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            border-radius: 8px;
-            padding: 10px 12px;
-        }
-
-        .kpi-label {
-            font-size: 10px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            margin-bottom: 4px;
-        }
-
-        .kpi-value {
-            font-size: 22px;
+        .val-gpm {
+            font-size: 19px;
             font-weight: 800;
-            font-variant-numeric: tabular-nums;
+            color: var(--gpm-color);
             font-family: monospace;
-            letter-spacing: -0.5px;
+            font-variant-numeric: tabular-nums;
         }
 
-        .kpi-value.gpm { color: var(--gpm-color); }
-        .kpi-value.ratio { color: var(--ratio-color); }
-
-        /* 图表栏头部：右上角可选指标切换 */
-        .chart-header-bar {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+        .val-ratio {
+            font-size: 19px;
+            font-weight: 800;
+            color: var(--ratio-color);
+            font-family: monospace;
+            font-variant-numeric: tabular-nums;
         }
 
-        .chart-tag-label {
-            font-size: 11px;
+        .val-time {
+            font-size: 13px;
             color: #9ca3af;
-            font-weight: 500;
+            font-family: monospace;
+            text-align: right;
         }
 
-        .metric-toggles {
-            display: flex;
-            align-items: center;
-            gap: 6px;
+        .flash-update {
+            animation: highlight-pulse 0.8s ease-out;
         }
 
-        .toggle-chip {
-            background: rgba(255, 255, 255, 0.04);
-            color: #6b7280;
-            border: 1px solid transparent;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.15s ease;
-        }
-
-        .toggle-chip.active-gpm {
-            background: rgba(245, 158, 11, 0.2);
-            color: #f59e0b;
-            border-color: rgba(245, 158, 11, 0.5);
-        }
-
-        .toggle-chip.active-ratio {
-            background: rgba(16, 185, 129, 0.2);
-            color: #10b981;
-            border-color: rgba(16, 185, 129, 0.5);
-        }
-
-        .chart-box {
-            position: relative;
-            width: 100%;
-            height: 320px;
-            background: rgba(0, 0, 0, 0.25);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.04);
-            padding: 4px;
-        }
-
-        canvas.room-canvas {
-            width: 100%;
-            height: 100%;
-            display: block;
-            cursor: crosshair;
-        }
-
-        .chart-tooltip {
-            position: absolute;
-            display: none;
-            background: rgba(19, 27, 46, 0.95);
-            border: 1px solid rgba(255, 255, 255, 0.15);
-            border-radius: 6px;
-            padding: 6px 10px;
-            font-size: 11px;
-            pointer-events: none;
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-            z-index: 50;
-            backdrop-filter: blur(8px);
+        @keyframes highlight-pulse {
+            0% { background-color: rgba(37, 99, 235, 0.22); }
+            100% { background-color: transparent; }
         }
 
         .empty-view {
             text-align: center;
-            padding: 100px 20px;
+            padding: 90px 20px;
             color: var(--text-muted);
         }
 
@@ -332,364 +245,106 @@
         <div class="brand-title">
             <span class="pulse-badge">
                 <span class="pulse-dot"></span>
-                <span id="activeCountLabel">同屏实时监控中</span>
+                <span>总控实时服务已就绪</span>
             </span>
-            <h1>多直播间转化山势图监控</h1>
+            <h1>抖音直播核心指标监控表格</h1>
         </div>
 
-        <div class="top-controls">
-            <!-- 最右上角：时间段切换 -->
-            <div class="granularity-selector">
-                <button class="gran-btn" data-range="5" onclick="setGranularity(5, this)">5M</button>
-                <button class="gran-btn" data-range="15" onclick="setGranularity(15, this)">15M</button>
-                <button class="gran-btn active" data-range="30" onclick="setGranularity(30, this)">30M</button>
-                <button class="gran-btn" data-range="60" onclick="setGranularity(60, this)">1H</button>
-            </div>
-        </div>
+        <div class="room-counter" id="activeCountLabel">当前监控: 0 个直播间</div>
     </header>
 
     <main class="container">
-        <!-- 并排房间网格 -->
-        <div class="rooms-grid cols-3" id="roomsGrid">
-            <!-- 动态卡片 -->
+        <div class="table-card" id="tableCard">
+            <table class="monitoring-table">
+                <thead>
+                    <tr>
+                        <th class="col-room">直播间</th>
+                        <th class="col-gpm">GPM (元)</th>
+                        <th class="col-ratio">观看 - 成交率</th>
+                        <th class="col-time">更新时间</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- 动态行数据 -->
+                </tbody>
+            </table>
         </div>
 
         <div class="empty-view" id="emptyView" style="display:none;">
             <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
             <h3>暂无活跃大屏接入</h3>
-            <p style="margin-top:6px;font-size:13px;">请在浏览器中打开 1~3 个抖音电商罗盘大屏并启用油猴哨兵脚本</p>
+            <p style="margin-top:6px;font-size:13px;">请在浏览器中打开抖音电商罗盘大屏并启用油猴哨兵脚本</p>
         </div>
     </main>
 
     <script>
-        let currentRooms = [];
-        let selectedRangeMinutes = 30; // 默认 30M
-        const roomMetricStates = {}; // roomId -> { showGpm: true, showRatio: true }
-
-        const gridElement = document.getElementById('roomsGrid');
+        const tableBody = document.getElementById('tableBody');
         const emptyElement = document.getElementById('emptyView');
+        const tableCard = document.getElementById('tableCard');
+        const activeCountLabel = document.getElementById('activeCountLabel');
+
+        const prevValues = {}; // roomId -> { gpm, ratio }
 
         function formatCurrency(val) {
             return '¥' + Number(val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         }
 
-        function setGranularity(minutes, btn) {
-            selectedRangeMinutes = minutes;
-            const buttons = document.querySelectorAll('.gran-btn');
-            buttons.forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            renderAllRooms();
+        function formatTime(ts) {
+            const d = ts ? new Date(ts) : new Date();
+            const h = String(d.getHours()).padStart(2, '0');
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            return `${h}:${m}:${s}`;
         }
 
-        function toggleMetric(roomId, metricType) {
-            if (!roomMetricStates[roomId]) {
-                roomMetricStates[roomId] = { showGpm: true, showRatio: true };
-            }
-            const state = roomMetricStates[roomId];
-            if (metricType === 'gpm') {
-                if (state.showGpm && !state.showRatio) return;
-                state.showGpm = !state.showGpm;
-                const btn = document.getElementById(`toggle-gpm-${roomId}`);
-                if (btn) btn.className = `toggle-chip ${state.showGpm ? 'active-gpm' : ''}`;
-            } else if (metricType === 'ratio') {
-                if (state.showRatio && !state.showGpm) return;
-                state.showRatio = !state.showRatio;
-                const btn = document.getElementById(`toggle-ratio-${roomId}`);
-                if (btn) btn.className = `toggle-chip ${state.showRatio ? 'active-ratio' : ''}`;
-            }
-            drawRoomMountainChart(roomId);
-        }
+        function updateTable(rooms) {
+            const list = rooms || [];
+            activeCountLabel.textContent = `当前监控: ${list.length} 个直播间`;
 
-        function applyGridClass(count) {
-            gridElement.className = 'rooms-grid';
-            if (count === 1) gridElement.classList.add('cols-1');
-            else if (count === 2) gridElement.classList.add('cols-2');
-            else if (count === 3) gridElement.classList.add('cols-3');
-            else gridElement.classList.add('cols-multi');
-        }
-
-        function updateRoomsData(rooms) {
-            currentRooms = rooms || [];
-            if (currentRooms.length === 0) {
+            if (list.length === 0) {
                 emptyElement.style.display = 'block';
-                gridElement.style.display = 'none';
-                document.getElementById('activeCountLabel').textContent = '等待大屏接入';
+                tableCard.style.display = 'none';
                 return;
             }
 
             emptyElement.style.display = 'none';
-            gridElement.style.display = 'grid';
-            document.getElementById('activeCountLabel').textContent = `${currentRooms.length} 房间同屏山势图监控中`;
+            tableCard.style.display = 'block';
 
-            applyGridClass(currentRooms.length);
-            renderAllRooms();
-        }
-
-        function renderAllRooms() {
-            currentRooms.forEach((room) => {
-                if (!roomMetricStates[room.roomId]) {
-                    roomMetricStates[room.roomId] = { showGpm: true, showRatio: true };
-                }
-
-                let card = document.getElementById(`card-${room.roomId}`);
-                if (!card) {
-                    card = document.createElement('div');
-                    card.id = `card-${room.roomId}`;
-                    card.className = 'room-card';
-                    card.innerHTML = `
-                        <div class="room-header">
-                            <div class="room-title-group">
-                                <div class="room-name" id="name-${room.roomId}">${room.shopName || room.roomId}</div>
-                                <div class="room-meta">ID: ${room.roomId}</div>
-                            </div>
-                            <span class="status-badge ${room.isOnline ? 'online' : 'offline'}" id="status-${room.roomId}">
-                                ${room.liveStatusText || (room.isOnline ? '正在直播' : '离线')}
-                            </span>
-                        </div>
-                        <div class="kpi-row">
-                            <div class="kpi-cell">
-                                <div class="kpi-label">GPM (千次成交)</div>
-                                <div class="kpi-value gpm" id="gpm-${room.roomId}">¥0.00</div>
-                            </div>
-                            <div class="kpi-cell">
-                                <div class="kpi-label">观看 - 成交率</div>
-                                <div class="kpi-value ratio" id="ratio-${room.roomId}">0.00%</div>
-                            </div>
-                        </div>
-                        <!-- 右上角可选指标切换 -->
-                        <div class="chart-header-bar">
-                            <span class="chart-tag-label">山势面积图</span>
-                            <div class="metric-toggles">
-                                <button class="toggle-chip active-gpm" id="toggle-gpm-${room.roomId}" onclick="toggleMetric('${room.roomId}', 'gpm')">● GPM</button>
-                                <button class="toggle-chip active-ratio" id="toggle-ratio-${room.roomId}" onclick="toggleMetric('${room.roomId}', 'ratio')">● 成交率</button>
-                            </div>
-                        </div>
-                        <div class="chart-box">
-                            <canvas class="room-canvas" id="canvas-${room.roomId}"></canvas>
-                            <div class="chart-tooltip" id="tooltip-${room.roomId}"></div>
-                        </div>
-                    `;
-                    gridElement.appendChild(card);
-                    bindCanvasHover(room.roomId);
-                }
-
+            tableBody.innerHTML = list.map(room => {
                 const m = room.latestMetrics || {};
-                document.getElementById(`name-${room.roomId}`).textContent = room.shopName || room.roomId;
-                document.getElementById(`gpm-${room.roomId}`).textContent = formatCurrency(m.gpm_amount_yuan);
-                document.getElementById(`ratio-${room.roomId}`).textContent = ((Number(m.watch_to_pay_ratio || 0)) * 100).toFixed(2) + '%';
+                const gpm = m.gpm_amount_yuan || 0;
+                const ratio = (Number(m.watch_to_pay_ratio || 0) * 100).toFixed(2);
+                const isOnline = room.isOnline;
+                const timeStr = formatTime(room.lastHeartbeatTs);
 
-                const statusEl = document.getElementById(`status-${room.roomId}`);
-                statusEl.className = `status-badge ${room.isOnline ? 'online' : 'offline'}`;
-                statusEl.textContent = room.liveStatusText || (room.isOnline ? '正在直播' : '离线');
+                // 检测是否发生更新
+                const prev = prevValues[room.roomId];
+                const hasChanged = prev && (prev.gpm !== gpm || prev.ratio !== ratio);
+                prevValues[room.roomId] = { gpm, ratio };
 
-                drawRoomMountainChart(room.roomId);
-            });
-
-            const activeIds = new Set(currentRooms.map(r => `card-${r.roomId}`));
-            Array.from(gridElement.children).forEach(child => {
-                if (!activeIds.has(child.id)) child.remove();
-            });
-        }
-
-        function drawRoomMountainChart(roomId, hoverX = null) {
-            const canvas = document.getElementById(`canvas-${roomId}`);
-            if (!canvas) return;
-            const tooltip = document.getElementById(`tooltip-${roomId}`);
-            const room = currentRooms.find(r => r.roomId === roomId);
-            if (!room) return;
-
-            const state = roomMetricStates[roomId] || { showGpm: true, showRatio: true };
-
-            const rect = canvas.getBoundingClientRect();
-            if (canvas.width !== rect.width * window.devicePixelRatio) {
-                canvas.width = rect.width * window.devicePixelRatio;
-                canvas.height = rect.height * window.devicePixelRatio;
-            }
-
-            const ctx = canvas.getContext('2d');
-            ctx.setTransform(1, 0, 0, 1, 0, 0);
-            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-
-            const w = rect.width;
-            const h = rect.height;
-            ctx.clearRect(0, 0, w, h);
-
-            if (!room.metricHistory || room.metricHistory.length < 2) {
-                ctx.fillStyle = '#6b7280';
-                ctx.font = '12px sans-serif';
-                ctx.textAlign = 'center';
-                ctx.fillText('等待积累时序采样点...', w / 2, h / 2);
-                return;
-            }
-
-            const cutoffTs = Date.now() - selectedRangeMinutes * 60 * 1000;
-            let points = room.metricHistory.filter(p => p.timestamp >= cutoffTs);
-            if (points.length < 2) {
-                points = room.metricHistory.slice(-Math.min(room.metricHistory.length, selectedRangeMinutes * 4));
-            }
-
-            const padding = { top: 22, right: 48, bottom: 26, left: 48 };
-            const chartW = w - padding.left - padding.right;
-            const chartH = h - padding.top - padding.bottom;
-
-            const gpmValues = points.map(p => Number(p.gpm_amount_yuan || 0));
-            const ratioValues = points.map(p => Number(p.watch_to_pay_ratio_percent || 0));
-
-            const minGpm = Math.floor(Math.min(...gpmValues) * 0.9);
-            const maxGpm = Math.max(minGpm + 10, Math.ceil(Math.max(...gpmValues) * 1.1));
-
-            const minRatio = Math.max(0, Number((Math.min(...ratioValues) * 0.85).toFixed(1)));
-            const maxRatio = Math.max(minRatio + 1, Number((Math.max(...ratioValues) * 1.15).toFixed(1)));
-
-            ctx.lineWidth = 1;
-            ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
-            const ySteps = 4;
-
-            for (let i = 0; i <= ySteps; i++) {
-                const y = padding.top + (chartH / ySteps) * i;
-
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
-                ctx.beginPath();
-                ctx.moveTo(padding.left, y);
-                ctx.lineTo(padding.left + chartW, y);
-                ctx.stroke();
-
-                if (state.showGpm) {
-                    const gVal = Math.round(maxGpm - ((maxGpm - minGpm) / ySteps) * i);
-                    ctx.fillStyle = '#f59e0b';
-                    ctx.textAlign = 'right';
-                    ctx.fillText('¥' + gVal, padding.left - 6, y + 3);
-                }
-
-                if (state.showRatio) {
-                    const rVal = (maxRatio - ((maxRatio - minRatio) / ySteps) * i).toFixed(1);
-                    ctx.fillStyle = '#10b981';
-                    ctx.textAlign = 'left';
-                    ctx.fillText(rVal + '%', padding.left + chartW + 6, y + 3);
-                }
-            }
-
-            ctx.textAlign = 'center';
-            ctx.fillStyle = '#9ca3af';
-            const xStepCount = Math.min(5, points.length);
-            for (let i = 0; i < xStepCount; i++) {
-                const idx = Math.floor((points.length - 1) / (xStepCount - 1) * i);
-                const x = padding.left + (chartW / (points.length - 1)) * idx;
-                ctx.fillText(points[idx].timeDisplay || '', x, h - padding.bottom + 16);
-            }
-
-            const coords = points.map((p, idx) => {
-                const x = padding.left + (chartW / (points.length - 1)) * idx;
-                const g = Number(p.gpm_amount_yuan || 0);
-                const r = Number(p.watch_to_pay_ratio_percent || 0);
-                const yGpm = padding.top + chartH - ((g - minGpm) / (maxGpm - minGpm)) * chartH;
-                const yRatio = padding.top + chartH - ((r - minRatio) / (maxRatio - minRatio)) * chartH;
-                return { x, yGpm, yRatio, data: p };
-            });
-
-            // 绘制山势面积图 (Area Mountain Fill)
-            if (state.showGpm) {
-                drawMountainArea(ctx, coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.35)', 'rgba(245, 158, 11, 0.0)', h, padding.top);
-            }
-            if (state.showRatio) {
-                drawMountainArea(ctx, coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.35)', 'rgba(16, 185, 129, 0.0)', h, padding.top);
-            }
-
-            if (hoverX !== null) {
-                let nearest = coords[0];
-                let minDist = Math.abs(hoverX - coords[0].x);
-                for (let i = 1; i < coords.length; i++) {
-                    const dist = Math.abs(hoverX - coords[i].x);
-                    if (dist < minDist) {
-                        minDist = dist;
-                        nearest = coords[i];
-                    }
-                }
-
-                ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.setLineDash([3, 3]);
-                ctx.beginPath();
-                ctx.moveTo(nearest.x, padding.top);
-                ctx.lineTo(nearest.x, padding.top + chartH);
-                ctx.stroke();
-                ctx.setLineDash([]);
-
-                if (state.showGpm) drawPoint(ctx, nearest.x, nearest.yGpm, '#f59e0b');
-                if (state.showRatio) drawPoint(ctx, nearest.x, nearest.yRatio, '#10b981');
-
-                let tooltipHtml = `<div style="color:#9ca3af;font-size:10px;font-family:monospace;margin-bottom:2px;">${nearest.data.timeDisplay || ''}</div>`;
-                if (state.showGpm) {
-                    tooltipHtml += `<div style="color:#f59e0b;font-weight:600;">GPM: ¥${Number(nearest.data.gpm_amount_yuan).toFixed(2)}</div>`;
-                }
-                if (state.showRatio) {
-                    tooltipHtml += `<div style="color:#10b981;font-weight:600;">成交率: ${Number(nearest.data.watch_to_pay_ratio_percent).toFixed(2)}%</div>`;
-                }
-
-                tooltip.style.display = 'block';
-                tooltip.style.left = `${Math.min(nearest.x + 10, w - 120)}px`;
-                const topY = Math.min(state.showGpm ? nearest.yGpm : 999, state.showRatio ? nearest.yRatio : 999);
-                tooltip.style.top = `${Math.max(10, topY)}px`;
-                tooltip.innerHTML = tooltipHtml;
-            } else {
-                tooltip.style.display = 'none';
-            }
-        }
-
-        function drawMountainArea(ctx, coords, key, strokeColor, gradTop, gradBottom, canvasH, topLimit) {
-            const bottomY = canvasH - 26;
-            const gradient = ctx.createLinearGradient(0, topLimit, 0, bottomY);
-            gradient.addColorStop(0, gradTop);
-            gradient.addColorStop(1, gradBottom);
-
-            ctx.beginPath();
-            ctx.moveTo(coords[0].x, bottomY);
-            coords.forEach((c, i) => {
-                if (i === 0) ctx.lineTo(c.x, c[key]);
-                else {
-                    const prev = coords[i - 1];
-                    const cx = (prev.x + c.x) / 2;
-                    ctx.bezierCurveTo(cx, prev[key], cx, c[key], c.x, c[key]);
-                }
-            });
-            ctx.lineTo(coords[coords.length - 1].x, bottomY);
-            ctx.closePath();
-            ctx.fillStyle = gradient;
-            ctx.fill();
-
-            ctx.beginPath();
-            coords.forEach((c, i) => {
-                if (i === 0) ctx.moveTo(c.x, c[key]);
-                else {
-                    const prev = coords[i - 1];
-                    const cx = (prev.x + c.x) / 2;
-                    ctx.bezierCurveTo(cx, prev[key], cx, c[key], c.x, c[key]);
-                }
-            });
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 2.2;
-            ctx.stroke();
-        }
-
-        function drawPoint(ctx, x, y, color) {
-            ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
-            ctx.fillStyle = color;
-            ctx.fill();
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.4;
-            ctx.stroke();
-        }
-
-        function bindCanvasHover(roomId) {
-            const canvas = document.getElementById(`canvas-${roomId}`);
-            if (!canvas) return;
-            canvas.addEventListener('mousemove', (e) => {
-                const rect = canvas.getBoundingClientRect();
-                drawRoomMountainChart(roomId, e.clientX - rect.left);
-            });
-            canvas.addEventListener('mouseleave', () => {
-                drawRoomMountainChart(roomId, null);
-            });
+                return `
+                    <tr class="${hasChanged ? 'flash-update' : ''}" id="row-${room.roomId}">
+                        <td>
+                            <div class="room-cell">
+                                <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
+                                <div>
+                                    <div class="room-name-text">${room.shopName || room.roomId}</div>
+                                    <div class="room-id-text">ID: ${room.roomId}</div>
+                                </div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="val-gpm">${formatCurrency(gpm)}</div>
+                        </td>
+                        <td>
+                            <div class="val-ratio">${ratio}%</div>
+                        </td>
+                        <td>
+                            <div class="val-time">${timeStr}</div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         function connectSse() {
@@ -697,7 +352,7 @@
             es.onmessage = function (e) {
                 try {
                     const snapshot = JSON.parse(e.data);
-                    updateRoomsData(snapshot.rooms || []);
+                    updateTable(snapshot.rooms || []);
                 } catch (err) {
                     console.error('SSE Error:', err);
                 }
@@ -707,10 +362,6 @@
                 setTimeout(connectSse, 3000);
             };
         }
-
-        window.addEventListener('resize', () => {
-            currentRooms.forEach(r => drawRoomMountainChart(r.roomId));
-        });
 
         window.addEventListener('DOMContentLoaded', () => {
             connectSse();
