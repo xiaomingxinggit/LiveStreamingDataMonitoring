@@ -17,7 +17,7 @@ function sanitizeText(value) {
 class MetricsCalculator {
     constructor(options = {}) {
         this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 15000; // 15秒无心跳判定离线
-        this.historyWindowSize = options.historyWindowSize || 30; // 保留最近30个历史采样点
+        this.historyWindowSize = options.historyWindowSize || 720; // 保持最多 1 小时 (按 5 秒采样可存 720 点)
         this.processedEventIds = new Set();
         this.maxProcessedCache = options.maxProcessedCache || 5000;
         this.rooms = new Map(); // roomId -> RoomData

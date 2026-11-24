@@ -3,15 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音直播重点转化监控大屏 (GPM 与 观看-成交率)</title>
+    <title>抖音直播转化效能监控 (GPM & 观看-成交率)</title>
     <style>
         :root {
             --bg-color: #0b0f19;
             --card-bg: #131b2e;
             --border-color: rgba(255, 255, 255, 0.08);
             --border-active: rgba(59, 130, 246, 0.4);
-            --gpm-color: #f59e0b; /* Amber */
-            --ratio-color: #10b981; /* Emerald */
+            --gpm-color: #f59e0b;
+            --ratio-color: #10b981;
             --text-main: #f3f4f6;
             --text-muted: #9ca3af;
         }
@@ -116,34 +116,27 @@
             padding: 20px 24px;
             display: flex;
             flex-direction: column;
-            gap: 20px;
+            gap: 18px;
             max-width: 1440px;
             margin: 0 auto;
             width: 100%;
         }
 
-        /* 重点 KPI 卡片 (GPM 与 观看-成交率) */
+        /* 纯数据聚焦卡片 (无文字注释) */
         .kpi-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            gap: 18px;
         }
 
         .kpi-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
             border-radius: 12px;
-            padding: 22px 24px;
+            padding: 20px 24px;
             position: relative;
             overflow: hidden;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-        }
-
-        .kpi-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 8px;
         }
 
         .kpi-title {
@@ -152,13 +145,7 @@
             text-transform: uppercase;
             font-weight: 600;
             letter-spacing: 0.5px;
-        }
-
-        .kpi-tag {
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 4px;
-            font-weight: 500;
+            margin-bottom: 8px;
         }
 
         .kpi-val-group {
@@ -168,7 +155,7 @@
         }
 
         .kpi-val {
-            font-size: 38px;
+            font-size: 40px;
             font-weight: 800;
             font-variant-numeric: tabular-nums;
             letter-spacing: -0.5px;
@@ -187,14 +174,7 @@
             color: var(--text-muted);
         }
 
-        .kpi-desc {
-            font-size: 12px;
-            color: #6b7280;
-            margin-top: 8px;
-            line-height: 1.4;
-        }
-
-        /* 趋势图表面板 */
+        /* 图表面板 */
         .chart-card {
             background: var(--card-bg);
             border: 1px solid var(--border-color);
@@ -210,6 +190,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
         }
 
         .chart-titles {
@@ -223,10 +205,16 @@
             font-weight: 600;
         }
 
+        .chart-controls {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
         .chart-legends {
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 16px;
             font-size: 12px;
         }
 
@@ -242,10 +230,44 @@
             border-radius: 2px;
         }
 
+        /* 颗粒度切换选择器 (5M, 15M, 30M, 1H) */
+        .granularity-selector {
+            display: flex;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.35);
+            padding: 2px;
+            border-radius: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            gap: 2px;
+        }
+
+        .gran-btn {
+            background: transparent;
+            color: #9ca3af;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+            font-family: monospace;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .gran-btn:hover {
+            color: #ffffff;
+        }
+
+        .gran-btn.active {
+            background: #2563eb;
+            color: #ffffff;
+            box-shadow: 0 1px 4px rgba(37, 99, 235, 0.5);
+        }
+
         .chart-canvas-wrapper {
             position: relative;
             width: 100%;
-            height: 420px;
+            height: 440px;
         }
 
         canvas#trendCanvas {
@@ -269,7 +291,6 @@
             backdrop-filter: blur(8px);
         }
 
-        /* 空状态占位 */
         .empty-view {
             text-align: center;
             padding: 90px 20px;
@@ -290,9 +311,9 @@
         <div class="brand-title">
             <span class="pulse-badge">
                 <span class="pulse-dot"></span>
-                <span>总控实时推流</span>
+                <span>总控实时服务就绪</span>
             </span>
-            <h1>抖音直播转化效能监控 (GPM & 观看-成交率)</h1>
+            <h1>抖音直播转化效能监控</h1>
         </div>
 
         <div class="room-tabs" id="roomTabs">
@@ -301,49 +322,51 @@
     </header>
 
     <main class="container">
-        <!-- 核心 KPI 聚焦看板 -->
+        <!-- 重点指标卡片 -->
         <div class="kpi-row" id="kpiRow">
             <div class="kpi-card">
-                <div class="kpi-header">
-                    <span class="kpi-title">千次观看成交金额 (GPM)</span>
-                    <span class="kpi-tag" style="background:rgba(245,158,11,0.15);color:#f59e0b;" id="gpm-delta">实时变现效率</span>
-                </div>
+                <div class="kpi-title">千次观看用户支付金额 (GPM)</div>
                 <div class="kpi-val-group">
                     <div class="kpi-val gpm" id="kpiGpm">¥0.00</div>
-                    <span class="kpi-unit">元 / 千次观看</span>
+                    <span class="kpi-unit">元 / 千次</span>
                 </div>
-                <p class="kpi-desc">GPM = (直播间用户总支付金额 / 直播间千次观看数)，反映当前主播话术与货盘转化能级。</p>
             </div>
 
             <div class="kpi-card">
-                <div class="kpi-header">
-                    <span class="kpi-title">观看 - 成交率 (人数)</span>
-                    <span class="kpi-tag" style="background:rgba(16,185,129,0.15);color:#10b981;" id="ratio-delta">客群漏斗转化</span>
-                </div>
+                <div class="kpi-title">观看 - 成交率 (人数)</div>
                 <div class="kpi-val-group">
                     <div class="kpi-val ratio" id="kpiRatio">0.00%</div>
-                    <span class="kpi-unit">成交人数比例</span>
+                    <span class="kpi-unit">比例</span>
                 </div>
-                <p class="kpi-desc">观看-成交率 = (累计成交买家数 / 累计进场观看人数)，直观评估进场流量精准度与承接效率。</p>
             </div>
         </div>
 
-        <!-- 双指标双轴分钟级趋势大图 -->
+        <!-- 双指标双轴走势图 -->
         <div class="chart-card" id="chartCard">
             <div class="chart-header">
                 <div class="chart-titles">
-                    <h2>双指标历史波动趋势走势图</h2>
-                    <span style="font-size:12px;color:#9ca3af;" id="activeRoomLabel">正在等待大屏连接...</span>
+                    <h2 id="chartTitle">实时趋势图</h2>
+                    <span style="font-size:12px;color:#9ca3af;font-mono;" id="activeRoomLabel">正在等待大屏连接...</span>
                 </div>
 
-                <div class="chart-legends">
-                    <div class="legend-item">
-                        <span class="legend-line" style="background:var(--gpm-color);"></span>
-                        <span style="color:#f59e0b;font-weight:600;">GPM 千次成交 (左 Y 轴 / 元)</span>
+                <div class="chart-controls">
+                    <div class="chart-legends">
+                        <div class="legend-item">
+                            <span class="legend-line" style="background:var(--gpm-color);"></span>
+                            <span style="color:#f59e0b;font-weight:600;">GPM (左轴 / 元)</span>
+                        </div>
+                        <div class="legend-item">
+                            <span class="legend-line" style="background:var(--ratio-color);"></span>
+                            <span style="color:#10b981;font-weight:600;">观看-成交率 (右轴 / %)</span>
+                        </div>
                     </div>
-                    <div class="legend-item">
-                        <span class="legend-line" style="background:var(--ratio-color);"></span>
-                        <span style="color:#10b981;font-weight:600;">观看-成交率 (右 Y 轴 / %)</span>
+
+                    <!-- 颗粒度选择器 -->
+                    <div class="granularity-selector">
+                        <button class="gran-btn" data-range="5" onclick="setGranularity(5, this)">5M</button>
+                        <button class="gran-btn" data-range="15" onclick="setGranularity(15, this)">15M</button>
+                        <button class="gran-btn active" data-range="30" onclick="setGranularity(30, this)">30M</button>
+                        <button class="gran-btn" data-range="60" onclick="setGranularity(60, this)">1H</button>
                     </div>
                 </div>
             </div>
@@ -364,6 +387,7 @@
     <script>
         let currentRoomId = '';
         let latestRooms = [];
+        let selectedRangeMinutes = 30; // 默认 30M
         const canvas = document.getElementById('trendCanvas');
         const ctx = canvas.getContext('2d');
         const tooltip = document.getElementById('chartTooltip');
@@ -378,6 +402,14 @@
 
         function formatCurrency(val) {
             return '¥' + Number(val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function setGranularity(minutes, btn) {
+            selectedRangeMinutes = minutes;
+            const buttons = document.querySelectorAll('.gran-btn');
+            buttons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            drawChart();
         }
 
         function updateRoomTabs(rooms) {
@@ -420,7 +452,7 @@
             const m = room.latestMetrics || {};
             document.getElementById('kpiGpm').textContent = formatCurrency(m.gpm_amount_yuan);
             document.getElementById('kpiRatio').textContent = ((Number(m.watch_to_pay_ratio || 0)) * 100).toFixed(2) + '%';
-            document.getElementById('activeRoomLabel').textContent = `${room.shopName} (ID: ${room.roomId} | 状态: ${room.liveStatusText || '直播中'})`;
+            document.getElementById('activeRoomLabel').textContent = `${room.shopName} (ID: ${room.roomId})`;
 
             drawChart();
         }
@@ -439,8 +471,17 @@
                 return;
             }
 
-            const points = room.metricHistory;
-            const padding = { top: 35, right: 70, bottom: 40, left: 70 };
+            // 根据选定颗粒度过滤历史数据 (5M / 15M / 30M / 60M)
+            const now = Date.now();
+            const cutoffTs = now - selectedRangeMinutes * 60 * 1000;
+            let points = room.metricHistory.filter(p => p.timestamp >= cutoffTs);
+
+            if (points.length < 2) {
+                // 如果历史时间较短，至少取最近的点显示
+                points = room.metricHistory.slice(-Math.min(room.metricHistory.length, selectedRangeMinutes * 4));
+            }
+
+            const padding = { top: 35, right: 65, bottom: 40, left: 65 };
             const chartW = w - padding.left - padding.right;
             const chartH = h - padding.top - padding.bottom;
 
@@ -490,7 +531,7 @@
                 ctx.fillText(points[idx].timeDisplay || '', x, h - padding.bottom + 20);
             }
 
-            // 点坐标换算
+            // 换算坐标
             const coords = points.map((p, idx) => {
                 const x = padding.left + (chartW / (points.length - 1)) * idx;
                 const g = Number(p.gpm_amount_yuan || 0);
@@ -500,13 +541,13 @@
                 return { x, yGpm, yRatio, data: p };
             });
 
-            // 绘制 GPM 曲线
+            // GPM 曲线
             drawSeries(coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.1)');
 
-            // 绘制 观看-成交率 曲线
+            // 观看-成交率 曲线
             drawSeries(coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.1)');
 
-            // 交互提示
+            // 悬浮指示
             if (hoverX !== null) {
                 let nearest = coords[0];
                 let minDist = Math.abs(hoverX - coords[0].x);
@@ -591,7 +632,6 @@
             drawChart(null);
         });
 
-        // 建立 SSE 实时监听
         function connectSse() {
             const es = new EventSource('/api/stream/subscribe');
             es.onmessage = function (e) {
