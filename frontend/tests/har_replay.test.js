@@ -1,69 +1,65 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 const { CompassParser } = require('../src/parser');
 
-test('replay actual entries from compass.jinritemai.com.har', () => {
-    const harPath = path.resolve(__dirname, '../../compass.jinritemai.com.har');
-    assert.ok(fs.existsSync(harPath), 'HAR file must exist in workspace root');
+const captures = [
+    'compass.jinritemai.com-官方.har',
+    'compass.jinritemai.com-女鞋.har',
+    'compass.jinritemai.com-鞋类.har'
+];
 
-    const rawHar = fs.readFileSync(harPath, 'utf8');
-    const har = JSON.parse(rawHar);
-    const entries = har.log.entries;
+for (const capture of captures) {
+    const harPath = path.resolve(__dirname, '../..', capture);
+    const skip = fs.existsSync(harPath) ? false : 'Local HAR capture unavailable';
+    test(`replay Compass responses from ${capture}`, { skip }, () => {
+        const { log: { entries } } = JSON.parse(fs.readFileSync(harPath, 'utf8'));
+        const context = {};
+        const counts = { live_base_info: 0, core_data: 0, product_explain_detail: 0 };
 
-    let baseInfoCount = 0;
-    let coreDataCount = 0;
-    let productDetailCount = 0;
-    let lastRoomId = '';
+        for (const { request, response } of entries) {
+            const url = new URL(request.url);
+            if (url.hostname !== 'compass.jinritemai.com' || !url.pathname.startsWith('/compass_api/shop/live/live_screen/')) continue;
+            const endpoint = url.pathname.split('/').at(-1);
+            if (!Object.hasOwn(counts, endpoint) || !response.content.text) continue;
 
-    for (const entry of entries) {
-        const url = entry.request.url;
-        const text = entry.response.content.text;
-        if (!text) continue;
+            const json = JSON.parse(response.content.text);
+            const data = json.data;
+            const roomId = url.searchParams.get('room_id');
+            assert.match(roomId, /^\d{15,22}$/);
+            counts[endpoint]++;
 
-        let json;
-        try {
-            json = JSON.parse(text);
-        } catch {
-            continue;
-        }
-
-        if (url.includes('/live_screen/live_base_info')) {
-            const parsed = CompassParser.parseLiveBaseInfo(url, json);
-            if (parsed) {
-                baseInfoCount++;
-                lastRoomId = parsed.roomId;
-                assert.equal(parsed.roomId, '7711536474121833267');
-                assert.equal(parsed.shopName, 'chikoku官方旗舰店');
+            if (endpoint === 'live_base_info') {
+                const parsed = CompassParser.parseLiveBaseInfo(request.url, json);
+                assert.equal(parsed.roomId, roomId);
+                assert.equal(parsed.shopName, data.nickname.replace(/\u00B7/g, ' ').trim());
                 assert.equal(parsed.liveStatus, 2);
-            }
-        } else if (url.includes('/live_screen/core_data')) {
-            const parsed = CompassParser.parseCoreData(url, json, { roomId: lastRoomId });
-            if (parsed) {
-                coreDataCount++;
-                assert.ok(parsed.gmv_amount_yuan >= 5600, 'GMV should be valid and positive');
-                assert.ok(parsed.online_viewers_count >= 30 && parsed.online_viewers_count <= 50, 'Online viewers should fluctuate between 30 and 50');
-                assert.equal(parsed.ad_cost_yuan, 2006.75);
-                assert.equal(parsed.pay_users_count, 102);
-            }
-        } else if (url.includes('/live_screen/product_explain_detail')) {
-            const parsed = CompassParser.parseProductExplainDetail(url, json, { roomId: lastRoomId });
-            if (parsed) {
-                productDetailCount++;
-                if (parsed.isExplaining) {
-                    assert.equal(parsed.productId, '3783122488695848970');
-                    assert.equal(parsed.product_pay_amount_yuan, 1937.08);
-                    assert.equal(parsed.product_stock_count, 35949);
-                } else {
-                    assert.equal(parsed.productId, '0');
-                    assert.equal(parsed.isExplaining, false);
-                }
+                context.roomId = roomId;
+                context.shopName = parsed.shopName;
+            } else if (endpoint === 'core_data') {
+                const parsed = CompassParser.parseCoreData(request.url, json, context);
+                const metricValue = name => data.core_data.find(item => item.index_name === name).value.value;
+                assert.equal(parsed.roomId, roomId);
+                assert.equal(parsed.shopName, context.shopName);
+                assert.equal(parsed.gmv_amount_yuan, data.pay_amt.value / 100);
+                assert.ok(parsed.gmv_amount_yuan > 0);
+                assert.equal(parsed.online_viewers_count, metricValue('current_cnt'));
+                assert.ok(parsed.online_viewers_count > 0);
+                assert.equal(parsed.ad_cost_yuan, metricValue('stat_cost') / 100);
+                assert.equal(parsed.pay_users_count, metricValue('pay_ucnt'));
+            } else {
+                const parsed = CompassParser.parseProductExplainDetail(request.url, json, context);
+                assert.equal(parsed.roomId, roomId);
+                assert.equal(parsed.productId, String(data.product_id));
+                assert.equal(parsed.isExplaining, Boolean(data.explaining));
+                assert.equal(parsed.product_pay_amount_yuan, (data.pay_amt?.value ?? 0) / 100);
+                assert.equal(parsed.product_stock_count, data.stock_cnt?.value ?? 0);
             }
         }
-    }
 
-    assert.ok(baseInfoCount > 0, `Must parse base info events, got ${baseInfoCount}`);
-    assert.ok(coreDataCount > 0, `Must parse core data events, got ${coreDataCount}`);
-    assert.ok(productDetailCount > 0, `Must parse product explain events, got ${productDetailCount}`);
-});
+        for (const [endpoint, count] of Object.entries(counts)) {
+            assert.ok(count > 0, `No responses parsed for ${endpoint} in ${capture}`);
+        }
+    });
+}
