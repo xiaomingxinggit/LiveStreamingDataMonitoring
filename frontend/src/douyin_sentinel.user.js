@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.2.0
+// @version      1.4.0
 // @description  实时监听拦截抖音电商罗盘大屏数据（基础信息、核心指标、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/*
@@ -27,6 +27,7 @@
     // 1. 系统配置与运行时状态
     // =========================================================================
     const CONFIG = {
+        version: '1.4.0',
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
         batchIntervalMs: 1000,
         heartbeatIntervalMs: 3000,
@@ -51,8 +52,10 @@
         connected: false,
         roomId: initialRoomId || '',
         shopName: '',
+        responseCount: 0,
         capturedCount: 0,
         sentCount: 0,
+        latestResponses: new Map(),
         pendingQueue: [],
         lastHeartbeatTs: 0
     };
@@ -211,31 +214,48 @@
     // =========================================================================
     // 4. 统一路由与报文分发中心
     // =========================================================================
-    function processApiResponse(url, rawText, channel) {
-        if (!rawText || typeof rawText !== 'string') return;
+    const captureRoutes = [
+        { id: 'coreData', label: '核心指标', path: '/live_screen/core_data', parse: CompassParser.parseCoreData },
+        { id: 'baseInfo', label: '直播间信息', path: '/live_screen/live_base_info', parse: CompassParser.parseLiveBaseInfo },
+        { id: 'product', label: '讲解商品', path: '/live_screen/product_explain_detail', parse: CompassParser.parseProductExplainDetail },
+        { id: 'comments', label: '互动评论', path: '/live_screen/professional/comment', parse: CompassParser.parseComments },
+        { id: 'commentCluster', label: '评论聚类', path: '/live_screen/comment_cluster', parse: CompassParser.parseCommentCluster }
+    ];
+    const responsePreviewLimit = 12000;
 
-        let json;
+    function processApiResponse(url, rawText, channel, readError = false) {
+        if (typeof url !== 'string') return;
+        const route = captureRoutes.find(candidate => url.includes(candidate.path));
+        if (!route) return;
+
+        const text = typeof rawText === 'string' ? rawText : '';
+        const observation = {
+            observedAt: Date.now(),
+            channel,
+            status: readError ? 'readError' : 'empty',
+            preview: text.slice(0, responsePreviewLimit),
+            truncated: text.length > responsePreviewLimit,
+            payload: null
+        };
+        state.responseCount++;
+        state.latestResponses.set(route.id, observation);
+
         try {
-            json = JSON.parse(rawText);
-        } catch (e) {
-            return;
-        }
+            if (!text) return;
 
-        let parsedPayload = null;
+            let json;
+            try {
+                json = JSON.parse(text);
+            } catch {
+                observation.status = 'invalidJson';
+                return;
+            }
 
-        if (url.includes('/live_screen/live_base_info')) {
-            parsedPayload = CompassParser.parseLiveBaseInfo(url, json);
-        } else if (url.includes('/live_screen/core_data')) {
-            parsedPayload = CompassParser.parseCoreData(url, json);
-        } else if (url.includes('/live_screen/product_explain_detail')) {
-            parsedPayload = CompassParser.parseProductExplainDetail(url, json);
-        } else if (url.includes('/live_screen/professional/comment')) {
-            parsedPayload = CompassParser.parseComments(url, json);
-        } else if (url.includes('/live_screen/comment_cluster')) {
-            parsedPayload = CompassParser.parseCommentCluster(url, json);
-        }
+            const parsedPayload = json && typeof json === 'object' ? route.parse(url, json) : null;
+            if (!parsedPayload) return;
 
-        if (parsedPayload) {
+            observation.status = 'parsed';
+            observation.payload = parsedPayload;
             const envelope = {
                 eventId: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
                 timestampIso: new Date().toISOString(),
@@ -245,6 +265,11 @@
             };
             log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${state.roomId || '待解析'}`);
             enqueueEvent(envelope);
+        } catch (error) {
+            observation.status = 'parseError';
+            log('解析目标接口失败:', route.id, error.message);
+        } finally {
+            updateHud();
         }
     }
 
@@ -258,7 +283,6 @@
         if (state.pendingQueue.length > CONFIG.maxQueueSize) {
             state.pendingQueue.shift();
         }
-        updateHud();
     }
 
     function sendToBackend(endpoint, data, onSuccess, onError) {
@@ -321,7 +345,7 @@
         sendToBackend(
             '/api/sentinel/heartbeat',
             {
-                sentinelVersion: '1.2.0',
+                sentinelVersion: CONFIG.version,
                 roomId: state.roomId || 'unknown',
                 shopName: state.shopName || '',
                 capturedCount: state.capturedCount,
@@ -341,184 +365,462 @@
     }, CONFIG.heartbeatIntervalMs);
 
     // =========================================================================
-    // 6. 双通道注入拦截：主页面 (Main World) + unsafeWindow 代理
+    // 6. 页面网络响应监听
     // =========================================================================
 
-    // 6.1 监听主页面派发的原生网络事件
-    window.addEventListener('message', function (event) {
-        if (event.data && event.data.source === 'DOUYIN_SENTINEL_RAW') {
-            const { url, text, channel } = event.data;
-            processApiResponse(url, text, channel);
+    function installNetworkHooks(pageWindow, paths, notify) {
+        const xhrPrototype = pageWindow.XMLHttpRequest.prototype;
+        const { open, send } = xhrPrototype;
+        const eventPrototype = pageWindow.EventTarget?.prototype || xhrPrototype;
+        const { addEventListener, removeEventListener } = eventPrototype;
+        const observers = new WeakMap();
+
+        function targetUrl(value) {
+            if (!value) return '';
+            try {
+                const url = new URL(value, pageWindow.location.href);
+                const path = url.pathname.replace(/\/$/, '');
+                if (path.includes('/compass_api/') && paths.some(endpoint => path.endsWith(endpoint))) {
+                    return url.href;
+                }
+            } catch {
+                // 无法识别的地址交给页面原有网络代码。
+            }
+            return '';
         }
-    });
 
-    // 6.2 往主页面环境注入脚本（直接劫持网页原生 XHR 与 Fetch，破除沙箱隔离）
-    function injectMainWorldHook() {
-        const scriptCode = `
-        (function() {
-            if (window.__douyin_sentinel_injected__) return;
-            window.__douyin_sentinel_injected__ = true;
+        function observeXhr(xhr, requestedUrl) {
+            let handled = false;
+            const listeners = [
+                ['readystatechange', onReadyState],
+                ['load', captureResponse],
+                ['loadend', captureResponse]
+            ];
 
-            function isTargetUrl(url) {
-                if (!url || typeof url !== 'string') return false;
-                return url.includes('compass_api') && (
-                    url.includes('live_base_info') ||
-                    url.includes('core_data') ||
-                    url.includes('product_explain_detail') ||
-                    url.includes('professional/comment') ||
-                    url.includes('comment_cluster')
-                );
-            }
-
-            function notifySentinel(url, text, channel) {
-                window.postMessage({
-                    source: 'DOUYIN_SENTINEL_RAW',
-                    url: url,
-                    text: text,
-                    channel: channel
-                }, '*');
-            }
-
-            // 1. Hook 原生 XMLHttpRequest
-            const originalXhrOpen = XMLHttpRequest.prototype.open;
-            const originalXhrSend = XMLHttpRequest.prototype.send;
-
-            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
-                this._sentinelUrl = typeof url === 'string' ? url : (url && url.toString ? url.toString() : '');
-                return originalXhrOpen.apply(this, [method, url, ...rest]);
-            };
-
-            XMLHttpRequest.prototype.send = function(...args) {
-                this.addEventListener('load', function() {
+            function cleanup() {
+                if (handled) return;
+                handled = true;
+                observers.delete(xhr);
+                for (const [type, listener] of listeners) {
                     try {
-                        if (this._sentinelUrl && isTargetUrl(this._sentinelUrl)) {
-                            notifySentinel(this._sentinelUrl, this.responseText, 'xhr');
+                        removeEventListener.call(xhr, type, listener, true);
+                    } catch {
+                        try {
+                            xhr.removeEventListener(type, listener, true);
+                        } catch {
+                            // 清理监听器失败时仍保留页面原有的请求行为。
                         }
-                    } catch(e) {}
-                });
-                return originalXhrSend.apply(this, args);
-            };
-
-            // 2. Hook 原生 window.fetch
-            const originalFetch = window.fetch;
-            if (typeof originalFetch === 'function') {
-                window.fetch = async function(...args) {
-                    const response = await originalFetch.apply(this, args);
-                    try {
-                        const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-                        if (isTargetUrl(url)) {
-                            const clone = response.clone();
-                            clone.text().then(text => {
-                                notifySentinel(url, text, 'fetch');
-                            }).catch(() => {});
-                        }
-                    } catch(e) {}
-                    return response;
-                };
-            }
-
-            console.log('[Sentinel] 主世界网络拦截钩子已注入成功');
-        })();
-        `;
-
-        try {
-            const script = document.createElement('script');
-            script.textContent = scriptCode;
-            (document.head || document.documentElement).appendChild(script);
-            script.remove();
-        } catch (e) {
-            log('主页面脚本注入异常:', e);
-        }
-    }
-
-    // 立即执行主世界注入
-    injectMainWorldHook();
-
-    // 6.3 兜底：同步劫持 unsafeWindow
-    const targetWin = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
-    if (targetWin && targetWin !== window) {
-        try {
-            const origXhrOpen = targetWin.XMLHttpRequest.prototype.open;
-            const origXhrSend = targetWin.XMLHttpRequest.prototype.send;
-            targetWin.XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-                this._sentinelUrl = url;
-                return origXhrOpen.apply(this, [method, url, ...rest]);
-            };
-            targetWin.XMLHttpRequest.prototype.send = function (...args) {
-                this.addEventListener('load', function () {
-                    if (this._sentinelUrl && String(this._sentinelUrl).includes('compass_api')) {
-                        processApiResponse(String(this._sentinelUrl), this.responseText, 'xhr');
                     }
-                });
-                return origXhrSend.apply(this, args);
+                }
+            }
+
+            function onReadyState() {
+                // 在页面回调可能取消或复用请求前读取已完成的响应。
+                if (xhr.readyState === 4) captureResponse();
+            }
+
+            function captureResponse() {
+                if (handled) return;
+                cleanup();
+
+                const url = targetUrl(xhr.responseURL) || requestedUrl;
+                if (!url || xhr.status === 0) return;
+
+                let text;
+                try {
+                    text = xhr.responseType === 'json' ? JSON.stringify(xhr.response) : xhr.responseText;
+                } catch {
+                    notify(url, '', 'xhr', true);
+                    return;
+                }
+                notify(url, text, 'xhr');
+            }
+
+            observers.set(xhr, cleanup);
+            try {
+                for (const [type, listener] of listeners) {
+                    try {
+                        addEventListener.call(xhr, type, listener, true);
+                    } catch {
+                        xhr.addEventListener(type, listener, true);
+                    }
+                }
+            } catch {
+                cleanup();
+            }
+        }
+
+        xhrPrototype.open = function (method, url, ...args) {
+            const result = open.apply(this, [method, url, ...args]);
+            observers.get(this)?.();
+            // 在页面注册后续回调前开始监听，防止响应被同步清空。
+            observeXhr(this, targetUrl(url));
+            return result;
+        };
+
+        xhrPrototype.send = function (...args) {
+            if (!observers.has(this)) observeXhr(this, '');
+            try {
+                return send.apply(this, args);
+            } catch (error) {
+                observers.get(this)?.();
+                throw error;
+            }
+        };
+
+        const originalFetch = pageWindow.fetch;
+        if (typeof originalFetch === 'function') {
+            pageWindow.fetch = async function (...args) {
+                const response = await originalFetch.apply(this, args);
+                const input = args[0];
+                const url = targetUrl(response.url) || targetUrl(input?.url || input);
+                if (!url) return response;
+
+                try {
+                    response.clone().text().then(
+                        text => notify(url, text, 'fetch'),
+                        () => notify(url, '', 'fetch', true)
+                    );
+                } catch {
+                    notify(url, '', 'fetch', true);
+                }
+                return response;
             };
-        } catch (e) {}
+        }
     }
+
+    const capturePaths = captureRoutes.map(route => route.path);
+    const captureSource = `DOUYIN_SENTINEL_RAW_${Math.random().toString(36).slice(2)}`;
+
+    window.addEventListener('message', (event) => {
+        if (event.origin !== window.location.origin || event.data?.source !== captureSource) return;
+        const { url, text, channel, readError } = event.data;
+        processApiResponse(url, text, channel, readError);
+    }, true);
+
+    function injectMainWorldHook() {
+        const parent = document.head || document.documentElement;
+        if (!parent) return false;
+
+        const script = document.createElement('script');
+        script.textContent = `(() => {
+            const script = document.currentScript;
+            const post = window.postMessage.bind(window);
+            const origin = window.location.origin;
+            (${installNetworkHooks.toString()})(window, ${JSON.stringify(capturePaths)}, (url, text, channel, readError) => {
+                post({ source: ${JSON.stringify(captureSource)}, url, text, channel, readError }, origin);
+            });
+            script.dataset.sentinelCaptureReady = 'true';
+        })();`;
+
+        try {
+            parent.appendChild(script);
+            return script.dataset.sentinelCaptureReady === 'true';
+        } finally {
+            script.remove();
+        }
+    }
+
+    function startNetworkCapture() {
+        try {
+            if (injectMainWorldHook()) {
+                log('主页面网络监听已就绪');
+                return;
+            }
+        } catch (error) {
+            log('主页面网络监听未能安装:', error.message);
+        }
+
+        try {
+            const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+            installNetworkHooks(pageWindow, capturePaths, processApiResponse);
+            log('备用网络监听已就绪');
+        } catch (error) {
+            log('备用网络监听未能安装:', error.message);
+        }
+    }
+
+    startNetworkCapture();
 
     // =========================================================================
     // 7. 页面浮动状态指示栏 (HUD)
     // =========================================================================
-    let hudElement = null;
+    const captureStatus = {
+        parsed: '已解析',
+        empty: '无可用数据',
+        readError: '响应读取失败',
+        invalidJson: '响应不是有效 JSON',
+        parseError: '解析失败'
+    };
+    const panelMoney = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' });
+    const panelTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+    let hud = null;
 
     function createHud() {
-        if (hudElement || !document.body) return;
+        if (hud || !document.body) return;
 
-        hudElement = document.createElement('div');
-        hudElement.id = 'douyin-sentinel-hud';
-        hudElement.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            z-index: 2147483647;
-            background: rgba(17, 24, 39, 0.94);
-            color: #f3f4f6;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            font-size: 12px;
-            line-height: 1.5;
-            padding: 8px 14px;
-            border-radius: 8px;
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            cursor: pointer;
-            user-select: none;
-            backdrop-filter: blur(6px);
-            transition: all 0.2s ease;
+        const host = document.createElement('div');
+        host.id = 'douyin-sentinel-hud';
+        const root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = `
+            <style>
+                :host {
+                    position: fixed;
+                    right: 18px;
+                    bottom: 18px;
+                    z-index: 2147483647;
+                    font: 13px/1.5 "Microsoft YaHei", "PingFang SC", sans-serif;
+                    color: #e8f4f3;
+                    color-scheme: dark;
+                    --muted: #a4bdc1;
+                    --line: #2b424a;
+                    --mint: #76e2bb;
+                    --mono: "Cascadia Mono", "Consolas", monospace;
+                }
+                *, *::before, *::after { box-sizing: border-box; }
+                [hidden] { display: none !important; }
+                button { font: inherit; cursor: pointer; color: inherit; }
+                button:focus-visible, summary:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
+                #douyin-sentinel-toggle {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin: 8px 0 0 auto;
+                    padding: 9px 13px;
+                    border-radius: 8px;
+                    border: 1px solid #35565e;
+                    background: #10242c;
+                    box-shadow: 0 8px 26px #040d1255;
+                }
+                #douyin-sentinel-toggle:hover, .settings:hover { background: #213c47; }
+                .toggle-status { color: var(--mint); font-size: 12px; }
+                .chevron {
+                    width: 7px;
+                    height: 7px;
+                    margin: 4px 1px 0 2px;
+                    border-top: 1.5px solid var(--muted);
+                    border-right: 1.5px solid var(--muted);
+                    transform: rotate(-45deg);
+                }
+                [aria-expanded="true"] .chevron { margin-top: -3px; transform: rotate(135deg); }
+                .panel {
+                    display: flex;
+                    flex-direction: column;
+                    width: min(410px, calc(100vw - 36px));
+                    max-height: min(590px, calc(100dvh - 88px));
+                    overflow: hidden;
+                    border: 1px solid #35565e;
+                    border-top: 2px solid var(--mint);
+                    border-radius: 12px;
+                    background: #102129;
+                    box-shadow: 0 18px 46px #030b12a6;
+                }
+                .panel-head { padding: 15px 16px 13px; }
+                .head-line, .row-line { display: flex; align-items: center; gap: 8px; }
+                h2 { margin: 0 auto 0 0; font-size: 17px; line-height: 1.35; letter-spacing: .03em; }
+                .connection { flex: none; font-size: 11px; color: #edbf84; }
+                .connection[data-connected="true"] { color: var(--mint); }
+                .settings {
+                    padding: 3px 7px;
+                    border: 1px solid var(--line);
+                    border-radius: 5px;
+                    background: #142b35;
+                    font-size: 11px;
+                }
+                .room { margin: 7px 0 0; color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+                .counters {
+                    display: grid;
+                    grid-template-columns: repeat(3, 1fr);
+                    margin: 0;
+                    border-block: 1px solid var(--line);
+                    background: #0c1c24;
+                }
+                .counters > div { padding: 8px 10px 9px 16px; }
+                .counters > div + div { border-left: 1px solid var(--line); }
+                dt { color: var(--muted); font-size: 11px; }
+                dd { margin: 2px 0 0; font: 600 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+                .counters > div:first-child dd { color: var(--mint); }
+                .body { min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 12px 16px 15px; }
+                h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
+                .empty { margin: 0; padding: 13px 12px; color: var(--muted); border: 1px dashed #38545b; border-radius: 7px; }
+                .event { border-bottom: 1px solid var(--line); }
+                .event > summary { cursor: pointer; list-style: none; padding: 8px 0; }
+                .event > summary::-webkit-details-marker { display: none; }
+                .row-line > strong { margin-right: auto; font-size: 12px; }
+                .row-line::after { content: "+"; width: 10px; text-align: center; color: var(--muted); }
+                .event[open] .row-line::after { content: "−"; }
+                .meta { color: var(--muted); font: 11px/1.5 var(--mono); }
+                .status { color: #edbf84; font-size: 11px; }
+                .event[data-status="parsed"] .status { color: var(--mint); }
+                .data-summary { display: block; color: #d0e4e3; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+                .raw { margin: 0 0 11px; color: var(--muted); font-size: 11px; }
+                .raw > summary { cursor: pointer; }
+                pre {
+                    max-height: 225px;
+                    overflow: auto;
+                    padding: 9px;
+                    margin: 2px 0 8px;
+                    border: 1px solid var(--line);
+                    border-radius: 6px;
+                    background: #0a171e;
+                    color: #d8ede9;
+                    font: 11px/1.6 var(--mono);
+                    white-space: pre-wrap;
+                    overflow-wrap: anywhere;
+                    user-select: text;
+                }
+            </style>
+            <section class="panel" id="douyin-sentinel-panel" aria-labelledby="douyin-sentinel-title" hidden>
+                <header class="panel-head">
+                    <div class="head-line">
+                        <h2 id="douyin-sentinel-title">罗盘采集</h2>
+                        <span class="connection" id="douyin-sentinel-connection"></span>
+                        <button class="settings" id="douyin-sentinel-settings" type="button">总控设置</button>
+                    </div>
+                    <p class="room" id="douyin-sentinel-room"></p>
+                </header>
+                <dl class="counters">
+                    <div><dt>监听响应</dt><dd id="douyin-sentinel-response-count">0</dd></div>
+                    <div><dt>成功解析</dt><dd id="douyin-sentinel-captured-count">0</dd></div>
+                    <div><dt>已回传</dt><dd id="douyin-sentinel-sent-count">0</dd></div>
+                </dl>
+                <div class="body">
+                    <h3>各接口最新响应</h3>
+                    <div id="douyin-sentinel-events">
+                        <p class="empty" id="douyin-sentinel-empty">等待罗盘页面返回目标接口数据</p>
+                    </div>
+                </div>
+            </section>
+            <button id="douyin-sentinel-toggle" type="button" aria-controls="douyin-sentinel-panel" aria-expanded="false">
+                <strong>罗盘哨兵</strong>
+                <span class="toggle-status" id="douyin-sentinel-toggle-status"></span>
+                <span class="chevron" aria-hidden="true"></span>
+            </button>
         `;
-        document.body.appendChild(hudElement);
+        const find = name => root.querySelector(`#douyin-sentinel-${name}`);
+        hud = {
+            panel: find('panel'),
+            toggle: find('toggle'),
+            toggleStatus: find('toggle-status'),
+            connection: find('connection'),
+            room: find('room'),
+            responseCount: find('response-count'),
+            capturedCount: find('captured-count'),
+            sentCount: find('sent-count'),
+            events: find('events'),
+            empty: find('empty'),
+            rows: new Map()
+        };
 
-        hudElement.addEventListener('click', () => {
-            const current = CONFIG.backendUrl;
-            const newUrl = prompt('设置本地总控服务地址 (默认 http://127.0.0.1:28888):', current);
-            if (newUrl && newUrl.trim() !== '') {
+        function setExpanded(expanded) {
+            hud.toggle.setAttribute('aria-expanded', String(expanded));
+            hud.panel.hidden = !expanded;
+            updateHud();
+        }
+
+        hud.toggle.addEventListener('click', () => setExpanded(hud.panel.hidden));
+        root.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && !hud.panel.hidden) {
+                event.stopPropagation();
+                setExpanded(false);
+                hud.toggle.focus();
+            }
+        });
+        find('settings').addEventListener('click', () => {
+            const newUrl = prompt('设置本地总控服务地址', CONFIG.backendUrl);
+            if (newUrl && newUrl.trim()) {
                 CONFIG.backendUrl = newUrl.trim();
                 GM_setValue('backend_url', CONFIG.backendUrl);
-                alert(`已更新总控地址为: ${CONFIG.backendUrl}`);
-                updateHud();
+                alert(`已更新总控地址为 ${CONFIG.backendUrl}`);
             }
         });
 
+        document.body.appendChild(host);
         updateHud();
     }
 
+    function describePayload(payload) {
+        switch (payload.eventType) {
+            case 'CORE_METRICS': {
+                const amount = panelMoney.format(payload.gmv_amount_yuan);
+                return `成交金额 ${amount}  在线 ${payload.online_viewers_count} 人  成交 ${payload.pay_combo_orders_count} 件`;
+            }
+            case 'ROOM_BASE_INFO':
+                return [payload.shopName, payload.liveStatusText, payload.liveStartTime].filter(Boolean).join('  ');
+            case 'EXPLAINING_PRODUCT':
+                return payload.isExplaining ? payload.productName || '正在讲解' : '当前未讲解商品';
+            case 'LIVE_COMMENTS':
+                return `${payload.comments.length} 条评论`;
+            case 'COMMENT_CLUSTER':
+                return `${payload.clusters.length} 个评论关键词`;
+            default:
+                return '';
+        }
+    }
+
+    function renderResponse(route, observation) {
+        let row = hud.rows.get(route.id);
+        if (!row) {
+            const element = document.createElement('details');
+            element.className = 'event';
+            element.dataset.route = route.id;
+            element.innerHTML = `
+                <summary>
+                    <span class="row-line"><strong></strong><span class="meta"></span><span class="status"></span></span>
+                    <span class="data-summary"></span>
+                </summary>
+                <pre class="parsed" aria-label="解析数据"></pre>
+                <details class="raw"><summary>原始响应</summary><pre></pre></details>
+            `;
+            element.querySelector('strong').textContent = route.label;
+            hud.events.appendChild(element);
+            row = {
+                element,
+                meta: element.querySelector('.meta'),
+                status: element.querySelector('.status'),
+                summary: element.querySelector('.data-summary'),
+                parsed: element.querySelector('.parsed'),
+                raw: element.querySelector('.raw'),
+                rawLabel: element.querySelector('.raw summary'),
+                rawPreview: element.querySelector('.raw pre'),
+                observation: null
+            };
+            hud.rows.set(route.id, row);
+        }
+        if (row.observation === observation) return;
+
+        row.observation = observation;
+        row.element.dataset.status = observation.status;
+        const channel = observation.channel === 'fetch' ? 'Fetch' : 'XHR';
+        row.meta.textContent = `${panelTime.format(observation.observedAt)}  ${channel}`;
+        row.status.textContent = captureStatus[observation.status];
+        row.summary.hidden = !observation.payload;
+        row.summary.textContent = observation.payload ? sanitizeText(describePayload(observation.payload)) : '';
+        row.parsed.hidden = !observation.payload;
+        row.parsed.textContent = observation.payload ? sanitizeText(JSON.stringify(observation.payload, null, 2)) : '';
+        row.raw.hidden = !observation.preview;
+        row.rawLabel.textContent = observation.truncated ? '原始响应（前 12,000 字符）' : '原始响应';
+        row.rawPreview.textContent = sanitizeText(observation.preview);
+    }
+
     function updateHud() {
-        if (!hudElement) return;
+        if (!hud) return;
 
-        const statusColor = state.connected ? '#10b981' : '#ef4444';
-        const statusText = state.connected ? '总控已连接' : '等待总控软件';
-        const roomInfo = state.shopName || (state.roomId ? `房间 ${state.roomId}` : '正在检测大屏');
+        hud.toggleStatus.textContent = state.responseCount > 0 ? `响应 ${state.responseCount}` : '等待响应';
+        if (hud.panel.hidden) return;
 
-        hudElement.innerHTML = `
-            <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};"></span>
-            <span><strong>电商罗盘哨兵</strong>: ${statusText}</span>
-            <span style="color:rgba(255,255,255,0.25);">|</span>
-            <span style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#93c5fd;">${roomInfo}</span>
-            <span style="color:rgba(255,255,255,0.25);">|</span>
-            <span>捕获: <strong>${state.capturedCount}</strong></span>
-            <span>回传: <strong>${state.sentCount}</strong></span>
-        `;
+        hud.connection.textContent = state.connected ? '总控已连接' : '等待总控连接';
+        hud.connection.dataset.connected = String(state.connected);
+        const room = state.roomId ? `房间 ${state.roomId}` : '等待识别房间';
+        hud.room.textContent = sanitizeText([state.shopName, room].filter(Boolean).join('  '));
+        hud.responseCount.textContent = String(state.responseCount);
+        hud.capturedCount.textContent = String(state.capturedCount);
+        hud.sentCount.textContent = String(state.sentCount);
+        hud.empty.hidden = state.responseCount > 0;
+        for (const route of captureRoutes) {
+            const observation = state.latestResponses.get(route.id);
+            if (observation) renderResponse(route, observation);
+        }
     }
 
     if (document.readyState === 'loading') {
@@ -528,5 +830,5 @@
     }
     setTimeout(createHud, 1000);
 
-    log('抖音电商罗盘哨兵 v1.2.0 已注入就绪');
+    log(`抖音电商罗盘哨兵 v${CONFIG.version} 已注入就绪`);
 })();
