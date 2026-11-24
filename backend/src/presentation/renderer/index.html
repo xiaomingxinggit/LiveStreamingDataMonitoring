@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音直播转化效能监控 (GPM & 观看-成交率)</title>
+    <title>抖音直播多房间转化效能并排监控 (GPM & 观看-成交率)</title>
     <style>
         :root {
             --bg-color: #0b0f19;
@@ -83,138 +83,16 @@
             100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
-        .room-tabs {
+        .top-controls {
             display: flex;
             align-items: center;
-            gap: 8px;
-            background: rgba(0, 0, 0, 0.25);
-            padding: 4px;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }
-
-        .tab-btn {
-            background: transparent;
-            color: var(--text-muted);
-            border: none;
-            padding: 6px 14px;
-            border-radius: 6px;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .tab-btn.active {
-            background: #2563eb;
-            color: #ffffff;
-            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
-        }
-
-        main.container {
-            flex: 1;
-            padding: 20px 24px;
-            display: flex;
-            flex-direction: column;
-            gap: 18px;
-            max-width: 1440px;
-            margin: 0 auto;
-            width: 100%;
-        }
-
-        /* 纯数据聚焦卡片 (无文字注释) */
-        .kpi-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 18px;
-        }
-
-        .kpi-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px 24px;
-            position: relative;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-        }
-
-        .kpi-title {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            font-weight: 600;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .kpi-val-group {
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
-        }
-
-        .kpi-val {
-            font-size: 40px;
-            font-weight: 800;
-            font-variant-numeric: tabular-nums;
-            letter-spacing: -0.5px;
-        }
-
-        .kpi-val.gpm {
-            color: var(--gpm-color);
-        }
-
-        .kpi-val.ratio {
-            color: var(--ratio-color);
-        }
-
-        .kpi-unit {
-            font-size: 13px;
-            color: var(--text-muted);
-        }
-
-        /* 图表面板 */
-        .chart-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            padding: 20px 24px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-
-        .chart-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-
-        .chart-titles {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-
-        .chart-titles h2 {
-            font-size: 15px;
-            font-weight: 600;
-        }
-
-        .chart-controls {
-            display: flex;
-            align-items: center;
-            gap: 18px;
+            gap: 20px;
         }
 
         .chart-legends {
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 14px;
             font-size: 12px;
         }
 
@@ -230,7 +108,6 @@
             border-radius: 2px;
         }
 
-        /* 颗粒度切换选择器 (5M, 15M, 30M, 1H) */
         .granularity-selector {
             display: flex;
             align-items: center;
@@ -264,13 +141,134 @@
             box-shadow: 0 1px 4px rgba(37, 99, 235, 0.5);
         }
 
-        .chart-canvas-wrapper {
-            position: relative;
+        main.container {
+            flex: 1;
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
             width: 100%;
-            height: 440px;
         }
 
-        canvas#trendCanvas {
+        /* 并排多房间网格容器 (动态根据数量并排) */
+        .rooms-grid {
+            display: grid;
+            gap: 16px;
+            width: 100%;
+        }
+
+        .rooms-grid.cols-1 { grid-template-columns: 1fr; }
+        .rooms-grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+        .rooms-grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+        .rooms-grid.cols-multi { grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); }
+
+        .room-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px 18px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            transition: all 0.2s ease;
+        }
+
+        .room-card:hover {
+            border-color: var(--border-active);
+        }
+
+        .room-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 10px;
+        }
+
+        .room-title-group {
+            max-width: 70%;
+        }
+
+        .room-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: #ffffff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .room-meta {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-family: monospace;
+            margin-top: 2px;
+        }
+
+        .status-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        .status-badge.online {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--ratio-color);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .status-badge.offline {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* 重点 KPI 卡片 (无文字注解) */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .kpi-cell {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 10px 12px;
+        }
+
+        .kpi-label {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+
+        .kpi-value {
+            font-size: 22px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            font-family: monospace;
+            letter-spacing: -0.5px;
+        }
+
+        .kpi-value.gpm { color: var(--gpm-color); }
+        .kpi-value.ratio { color: var(--ratio-color); }
+
+        .chart-box {
+            position: relative;
+            width: 100%;
+            height: 320px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            padding: 4px;
+        }
+
+        canvas.room-canvas {
             width: 100%;
             height: 100%;
             display: block;
@@ -283,17 +281,17 @@
             background: rgba(19, 27, 46, 0.95);
             border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 6px;
-            padding: 8px 12px;
-            font-size: 12px;
+            padding: 6px 10px;
+            font-size: 11px;
             pointer-events: none;
-            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
             z-index: 50;
             backdrop-filter: blur(8px);
         }
 
         .empty-view {
             text-align: center;
-            padding: 90px 20px;
+            padding: 100px 20px;
             color: var(--text-muted);
         }
 
@@ -311,94 +309,51 @@
         <div class="brand-title">
             <span class="pulse-badge">
                 <span class="pulse-dot"></span>
-                <span>总控实时服务就绪</span>
+                <span id="activeCountLabel">同屏实时监控中</span>
             </span>
-            <h1>抖音直播转化效能监控</h1>
+            <h1>多直播间转化效能并排监控</h1>
         </div>
 
-        <div class="room-tabs" id="roomTabs">
-            <!-- 动态房间标签 -->
+        <div class="top-controls">
+            <div class="chart-legends">
+                <div class="legend-item">
+                    <span class="legend-line" style="background:var(--gpm-color);"></span>
+                    <span style="color:#f59e0b;font-weight:600;">GPM (左轴 / 元)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="legend-line" style="background:var(--ratio-color);"></span>
+                    <span style="color:#10b981;font-weight:600;">观看-成交率 (右轴 / %)</span>
+                </div>
+            </div>
+
+            <!-- 全局颗粒度选择器 -->
+            <div class="granularity-selector">
+                <button class="gran-btn" data-range="5" onclick="setGranularity(5, this)">5M</button>
+                <button class="gran-btn" data-range="15" onclick="setGranularity(15, this)">15M</button>
+                <button class="gran-btn active" data-range="30" onclick="setGranularity(30, this)">30M</button>
+                <button class="gran-btn" data-range="60" onclick="setGranularity(60, this)">1H</button>
+            </div>
         </div>
     </header>
 
     <main class="container">
-        <!-- 重点指标卡片 -->
-        <div class="kpi-row" id="kpiRow">
-            <div class="kpi-card">
-                <div class="kpi-title">千次观看用户支付金额 (GPM)</div>
-                <div class="kpi-val-group">
-                    <div class="kpi-val gpm" id="kpiGpm">¥0.00</div>
-                    <span class="kpi-unit">元 / 千次</span>
-                </div>
-            </div>
-
-            <div class="kpi-card">
-                <div class="kpi-title">观看 - 成交率 (人数)</div>
-                <div class="kpi-val-group">
-                    <div class="kpi-val ratio" id="kpiRatio">0.00%</div>
-                    <span class="kpi-unit">比例</span>
-                </div>
-            </div>
-        </div>
-
-        <!-- 双指标双轴走势图 -->
-        <div class="chart-card" id="chartCard">
-            <div class="chart-header">
-                <div class="chart-titles">
-                    <h2 id="chartTitle">实时趋势图</h2>
-                    <span style="font-size:12px;color:#9ca3af;font-mono;" id="activeRoomLabel">正在等待大屏连接...</span>
-                </div>
-
-                <div class="chart-controls">
-                    <div class="chart-legends">
-                        <div class="legend-item">
-                            <span class="legend-line" style="background:var(--gpm-color);"></span>
-                            <span style="color:#f59e0b;font-weight:600;">GPM (左轴 / 元)</span>
-                        </div>
-                        <div class="legend-item">
-                            <span class="legend-line" style="background:var(--ratio-color);"></span>
-                            <span style="color:#10b981;font-weight:600;">观看-成交率 (右轴 / %)</span>
-                        </div>
-                    </div>
-
-                    <!-- 颗粒度选择器 -->
-                    <div class="granularity-selector">
-                        <button class="gran-btn" data-range="5" onclick="setGranularity(5, this)">5M</button>
-                        <button class="gran-btn" data-range="15" onclick="setGranularity(15, this)">15M</button>
-                        <button class="gran-btn active" data-range="30" onclick="setGranularity(30, this)">30M</button>
-                        <button class="gran-btn" data-range="60" onclick="setGranularity(60, this)">1H</button>
-                    </div>
-                </div>
-            </div>
-
-            <div class="chart-canvas-wrapper">
-                <canvas id="trendCanvas"></canvas>
-                <div id="chartTooltip" class="chart-tooltip"></div>
-            </div>
+        <!-- 并排房间容器 -->
+        <div class="rooms-grid cols-3" id="roomsGrid">
+            <!-- 动态渲染各房间卡片 -->
         </div>
 
         <div class="empty-view" id="emptyView" style="display:none;">
             <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
             <h3>暂无活跃大屏接入</h3>
-            <p style="margin-top:6px;font-size:13px;">请在浏览器中打开抖音电商罗盘大屏并启用油猴哨兵脚本</p>
+            <p style="margin-top:6px;font-size:13px;">请在浏览器中打开 1~3 个抖音电商罗盘大屏并启用油猴哨兵脚本</p>
         </div>
     </main>
 
     <script>
-        let currentRoomId = '';
-        let latestRooms = [];
+        let currentRooms = [];
         let selectedRangeMinutes = 30; // 默认 30M
-        const canvas = document.getElementById('trendCanvas');
-        const ctx = canvas.getContext('2d');
-        const tooltip = document.getElementById('chartTooltip');
-
-        function resizeCanvas() {
-            const rect = canvas.getBoundingClientRect();
-            canvas.width = rect.width * window.devicePixelRatio;
-            canvas.height = rect.height * window.devicePixelRatio;
-            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-            drawChart();
-        }
+        const gridElement = document.getElementById('roomsGrid');
+        const emptyElement = document.getElementById('emptyView');
 
         function formatCurrency(val) {
             return '¥' + Number(val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -409,79 +364,130 @@
             const buttons = document.querySelectorAll('.gran-btn');
             buttons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            drawChart();
+            renderAllRooms();
         }
 
-        function updateRoomTabs(rooms) {
-            const tabsContainer = document.getElementById('roomTabs');
-            if (rooms.length === 0) {
-                tabsContainer.innerHTML = '<span style="font-size:12px;color:#9ca3af;padding:4px 8px;">等待接入...</span>';
+        function applyGridClass(count) {
+            gridElement.className = 'rooms-grid';
+            if (count === 1) gridElement.classList.add('cols-1');
+            else if (count === 2) gridElement.classList.add('cols-2');
+            else if (count === 3) gridElement.classList.add('cols-3');
+            else gridElement.classList.add('cols-multi');
+        }
+
+        function updateRoomsData(rooms) {
+            currentRooms = rooms || [];
+            if (currentRooms.length === 0) {
+                emptyElement.style.display = 'block';
+                gridElement.style.display = 'none';
+                document.getElementById('activeCountLabel').textContent = '等待大屏接入';
                 return;
             }
 
-            if (!currentRoomId || !rooms.some(r => r.roomId === currentRoomId)) {
-                currentRoomId = rooms[0].roomId;
+            emptyElement.style.display = 'none';
+            gridElement.style.display = 'grid';
+            document.getElementById('activeCountLabel').textContent = `${currentRooms.length} 房间同屏实时监控中`;
+
+            applyGridClass(currentRooms.length);
+            renderAllRooms();
+        }
+
+        function renderAllRooms() {
+            // 保留或生成卡片骨架
+            currentRooms.forEach((room, idx) => {
+                let card = document.getElementById(`card-${room.roomId}`);
+                if (!card) {
+                    card = document.createElement('div');
+                    card.id = `card-${room.roomId}`;
+                    card.className = 'room-card';
+                    card.innerHTML = `
+                        <div class="room-header">
+                            <div class="room-title-group">
+                                <div class="room-name" id="name-${room.roomId}">${room.shopName || room.roomId}</div>
+                                <div class="room-meta">ID: ${room.roomId}</div>
+                            </div>
+                            <span class="status-badge ${room.isOnline ? 'online' : 'offline'}" id="status-${room.roomId}">
+                                ${room.liveStatusText || (room.isOnline ? '正在直播' : '离线')}
+                            </span>
+                        </div>
+                        <div class="kpi-row">
+                            <div class="kpi-cell">
+                                <div class="kpi-label">GPM (千次成交)</div>
+                                <div class="kpi-value gpm" id="gpm-${room.roomId}">¥0.00</div>
+                            </div>
+                            <div class="kpi-cell">
+                                <div class="kpi-label">观看 - 成交率</div>
+                                <div class="kpi-value ratio" id="ratio-${room.roomId}">0.00%</div>
+                            </div>
+                        </div>
+                        <div class="chart-box">
+                            <canvas class="room-canvas" id="canvas-${room.roomId}"></canvas>
+                            <div class="chart-tooltip" id="tooltip-${room.roomId}"></div>
+                        </div>
+                    `;
+                    gridElement.appendChild(card);
+                    bindCanvasHover(room.roomId);
+                }
+
+                // 更新数值
+                const m = room.latestMetrics || {};
+                document.getElementById(`name-${room.roomId}`).textContent = room.shopName || room.roomId;
+                document.getElementById(`gpm-${room.roomId}`).textContent = formatCurrency(m.gpm_amount_yuan);
+                document.getElementById(`ratio-${room.roomId}`).textContent = ((Number(m.watch_to_pay_ratio || 0)) * 100).toFixed(2) + '%';
+
+                const statusEl = document.getElementById(`status-${room.roomId}`);
+                statusEl.className = `status-badge ${room.isOnline ? 'online' : 'offline'}`;
+                statusEl.textContent = room.liveStatusText || (room.isOnline ? '正在直播' : '离线');
+
+                // 绘制该房间图表
+                drawRoomChart(room.roomId);
+            });
+
+            // 移除已关闭的房间 DOM
+            const activeIds = new Set(currentRooms.map(r => `card-${r.roomId}`));
+            Array.from(gridElement.children).forEach(child => {
+                if (!activeIds.has(child.id)) {
+                    child.remove();
+                }
+            });
+        }
+
+        function drawRoomChart(roomId, hoverX = null) {
+            const canvas = document.getElementById(`canvas-${roomId}`);
+            if (!canvas) return;
+            const tooltip = document.getElementById(`tooltip-${roomId}`);
+            const room = currentRooms.find(r => r.roomId === roomId);
+            if (!room) return;
+
+            const rect = canvas.getBoundingClientRect();
+            if (canvas.width !== rect.width * window.devicePixelRatio) {
+                canvas.width = rect.width * window.devicePixelRatio;
+                canvas.height = rect.height * window.devicePixelRatio;
             }
 
-            tabsContainer.innerHTML = rooms.map(r => `
-                <button class="tab-btn ${r.roomId === currentRoomId ? 'active' : ''}" onclick="selectRoom('${r.roomId}')">
-                    ${r.shopName || r.roomId}
-                </button>
-            `).join('');
-        }
+            const ctx = canvas.getContext('2d');
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 
-        function selectRoom(roomId) {
-            currentRoomId = roomId;
-            updateUI();
-            drawChart();
-        }
-
-        function updateUI() {
-            const room = latestRooms.find(r => r.roomId === currentRoomId);
-            if (!room) {
-                document.getElementById('emptyView').style.display = 'block';
-                document.getElementById('kpiRow').style.display = 'none';
-                document.getElementById('chartCard').style.display = 'none';
-                return;
-            }
-
-            document.getElementById('emptyView').style.display = 'none';
-            document.getElementById('kpiRow').style.display = 'grid';
-            document.getElementById('chartCard').style.display = 'flex';
-
-            const m = room.latestMetrics || {};
-            document.getElementById('kpiGpm').textContent = formatCurrency(m.gpm_amount_yuan);
-            document.getElementById('kpiRatio').textContent = ((Number(m.watch_to_pay_ratio || 0)) * 100).toFixed(2) + '%';
-            document.getElementById('activeRoomLabel').textContent = `${room.shopName} (ID: ${room.roomId})`;
-
-            drawChart();
-        }
-
-        function drawChart(hoverX = null) {
-            const room = latestRooms.find(r => r.roomId === currentRoomId);
-            const w = canvas.getBoundingClientRect().width;
-            const h = canvas.getBoundingClientRect().height;
+            const w = rect.width;
+            const h = rect.height;
             ctx.clearRect(0, 0, w, h);
 
-            if (!room || !room.metricHistory || room.metricHistory.length < 2) {
+            if (!room.metricHistory || room.metricHistory.length < 2) {
                 ctx.fillStyle = '#6b7280';
-                ctx.font = '13px sans-serif';
+                ctx.font = '12px sans-serif';
                 ctx.textAlign = 'center';
-                ctx.fillText('正在积累时序数据点（接收 2 个以上轮询即可生成趋势曲线）...', w / 2, h / 2);
+                ctx.fillText('等待积累时序采样点...', w / 2, h / 2);
                 return;
             }
 
-            // 根据选定颗粒度过滤历史数据 (5M / 15M / 30M / 60M)
-            const now = Date.now();
-            const cutoffTs = now - selectedRangeMinutes * 60 * 1000;
+            const cutoffTs = Date.now() - selectedRangeMinutes * 60 * 1000;
             let points = room.metricHistory.filter(p => p.timestamp >= cutoffTs);
-
             if (points.length < 2) {
-                // 如果历史时间较短，至少取最近的点显示
                 points = room.metricHistory.slice(-Math.min(room.metricHistory.length, selectedRangeMinutes * 4));
             }
 
-            const padding = { top: 35, right: 65, bottom: 40, left: 65 };
+            const padding = { top: 20, right: 45, bottom: 26, left: 45 };
             const chartW = w - padding.left - padding.right;
             const chartH = h - padding.top - padding.bottom;
 
@@ -491,13 +497,13 @@
             const minGpm = Math.floor(Math.min(...gpmValues) * 0.9);
             const maxGpm = Math.max(minGpm + 10, Math.ceil(Math.max(...gpmValues) * 1.1));
 
-            const minRatio = Math.max(0, Number((Math.min(...ratioValues) * 0.85).toFixed(2)));
-            const maxRatio = Math.max(minRatio + 1, Number((Math.max(...ratioValues) * 1.15).toFixed(2)));
+            const minRatio = Math.max(0, Number((Math.min(...ratioValues) * 0.85).toFixed(1)));
+            const maxRatio = Math.max(minRatio + 1, Number((Math.max(...ratioValues) * 1.15).toFixed(1)));
 
-            // 绘制网格与 Y 轴刻度
+            // 绘制网格与刻度
             ctx.lineWidth = 1;
-            ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
-            const ySteps = 5;
+            ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
+            const ySteps = 4;
 
             for (let i = 0; i <= ySteps; i++) {
                 const y = padding.top + (chartH / ySteps) * i;
@@ -512,26 +518,25 @@
                 const gVal = Math.round(maxGpm - ((maxGpm - minGpm) / ySteps) * i);
                 ctx.fillStyle = '#f59e0b';
                 ctx.textAlign = 'right';
-                ctx.fillText('¥' + gVal, padding.left - 10, y + 4);
+                ctx.fillText('¥' + gVal, padding.left - 6, y + 3);
 
                 // 右 Y 轴 (Ratio)
-                const rVal = (maxRatio - ((maxRatio - minRatio) / ySteps) * i).toFixed(2);
+                const rVal = (maxRatio - ((maxRatio - minRatio) / ySteps) * i).toFixed(1);
                 ctx.fillStyle = '#10b981';
                 ctx.textAlign = 'left';
-                ctx.fillText(rVal + '%', padding.left + chartW + 10, y + 4);
+                ctx.fillText(rVal + '%', padding.left + chartW + 6, y + 3);
             }
 
             // X 轴时间
             ctx.textAlign = 'center';
             ctx.fillStyle = '#9ca3af';
-            const xStepCount = Math.min(8, points.length);
+            const xStepCount = Math.min(5, points.length);
             for (let i = 0; i < xStepCount; i++) {
                 const idx = Math.floor((points.length - 1) / (xStepCount - 1) * i);
                 const x = padding.left + (chartW / (points.length - 1)) * idx;
-                ctx.fillText(points[idx].timeDisplay || '', x, h - padding.bottom + 20);
+                ctx.fillText(points[idx].timeDisplay || '', x, h - padding.bottom + 16);
             }
 
-            // 换算坐标
             const coords = points.map((p, idx) => {
                 const x = padding.left + (chartW / (points.length - 1)) * idx;
                 const g = Number(p.gpm_amount_yuan || 0);
@@ -541,11 +546,9 @@
                 return { x, yGpm, yRatio, data: p };
             });
 
-            // GPM 曲线
-            drawSeries(coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.1)');
-
-            // 观看-成交率 曲线
-            drawSeries(coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.1)');
+            // 绘制双曲线
+            drawSeries(ctx, coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.08)', h);
+            drawSeries(ctx, coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.08)', h);
 
             // 悬浮指示
             if (hoverX !== null) {
@@ -560,21 +563,21 @@
                 }
 
                 ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.setLineDash([4, 4]);
+                ctx.setLineDash([3, 3]);
                 ctx.beginPath();
                 ctx.moveTo(nearest.x, padding.top);
                 ctx.lineTo(nearest.x, padding.top + chartH);
                 ctx.stroke();
                 ctx.setLineDash([]);
 
-                drawPoint(nearest.x, nearest.yGpm, '#f59e0b');
-                drawPoint(nearest.x, nearest.yRatio, '#10b981');
+                drawPoint(ctx, nearest.x, nearest.yGpm, '#f59e0b');
+                drawPoint(ctx, nearest.x, nearest.yRatio, '#10b981');
 
                 tooltip.style.display = 'block';
-                tooltip.style.left = `${nearest.x + 15}px`;
+                tooltip.style.left = `${Math.min(nearest.x + 10, w - 120)}px`;
                 tooltip.style.top = `${Math.min(nearest.yGpm, nearest.yRatio)}px`;
                 tooltip.innerHTML = `
-                    <div style="color:#9ca3af;margin-bottom:3px;font-family:monospace;">${nearest.data.timeDisplay || ''}</div>
+                    <div style="color:#9ca3af;font-size:10px;font-family:monospace;">${nearest.data.timeDisplay || ''}</div>
                     <div style="color:#f59e0b;font-weight:600;">GPM: ¥${Number(nearest.data.gpm_amount_yuan).toFixed(2)}</div>
                     <div style="color:#10b981;font-weight:600;">成交率: ${Number(nearest.data.watch_to_pay_ratio_percent).toFixed(2)}%</div>
                 `;
@@ -583,9 +586,9 @@
             }
         }
 
-        function drawSeries(coords, key, strokeColor, fillColor) {
+        function drawSeries(ctx, coords, key, strokeColor, fillColor, canvasH) {
             ctx.beginPath();
-            ctx.moveTo(coords[0].x, canvas.getBoundingClientRect().height - 40);
+            ctx.moveTo(coords[0].x, canvasH - 26);
             coords.forEach((c, i) => {
                 if (i === 0) ctx.lineTo(c.x, c[key]);
                 else {
@@ -594,7 +597,7 @@
                     ctx.bezierCurveTo(cx, prev[key], cx, c[key], c.x, c[key]);
                 }
             });
-            ctx.lineTo(coords[coords.length - 1].x, canvas.getBoundingClientRect().height - 40);
+            ctx.lineTo(coords[coords.length - 1].x, canvasH - 26);
             ctx.closePath();
             ctx.fillStyle = fillColor;
             ctx.fill();
@@ -609,37 +612,38 @@
                 }
             });
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 2.5;
+            ctx.lineWidth = 2;
             ctx.stroke();
         }
 
-        function drawPoint(x, y, color) {
+        function drawPoint(ctx, x, y, color) {
             ctx.beginPath();
-            ctx.arc(x, y, 4, 0, Math.PI * 2);
+            ctx.arc(x, y, 3.5, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.2;
             ctx.stroke();
         }
 
-        canvas.addEventListener('mousemove', (e) => {
-            const rect = canvas.getBoundingClientRect();
-            drawChart(e.clientX - rect.left);
-        });
-
-        canvas.addEventListener('mouseleave', () => {
-            drawChart(null);
-        });
+        function bindCanvasHover(roomId) {
+            const canvas = document.getElementById(`canvas-${roomId}`);
+            if (!canvas) return;
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                drawRoomChart(roomId, e.clientX - rect.left);
+            });
+            canvas.addEventListener('mouseleave', () => {
+                drawRoomChart(roomId, null);
+            });
+        }
 
         function connectSse() {
             const es = new EventSource('/api/stream/subscribe');
             es.onmessage = function (e) {
                 try {
                     const snapshot = JSON.parse(e.data);
-                    latestRooms = snapshot.rooms || [];
-                    updateRoomTabs(latestRooms);
-                    updateUI();
+                    updateRoomsData(snapshot.rooms || []);
                 } catch (err) {
                     console.error('SSE Error:', err);
                 }
@@ -650,9 +654,11 @@
             };
         }
 
-        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('resize', () => {
+            currentRooms.forEach(r => drawRoomChart(r.roomId));
+        });
+
         window.addEventListener('DOMContentLoaded', () => {
-            resizeCanvas();
             connectSse();
         });
     </script>
