@@ -160,11 +160,17 @@ class MetricsCalculator {
         room.latestMetrics.watch_to_pay_ratio = Number(event.watch_to_pay_ratio ?? room.latestMetrics.watch_to_pay_ratio);
         room.latestMetrics.product_click_to_pay_ratio = Number(event.product_click_to_pay_ratio ?? room.latestMetrics.product_click_to_pay_ratio);
 
-        // 追加历史采样点并维护窗口大小
+        // 追加历史采样点并维护窗口大小 (记录 GPM 与 观看-成交率)
         const now = Date.now();
+        const dateObj = new Date(now);
+        const timeDisplay = `${String(dateObj.getHours()).padStart(2, '0')}:${String(dateObj.getMinutes()).padStart(2, '0')}`;
+
         room.metricHistory.push({
             timestamp: now,
+            timeDisplay: timeDisplay,
             gmv_amount_yuan: room.latestMetrics.gmv_amount_yuan,
+            gpm_amount_yuan: room.latestMetrics.gpm_amount_yuan,
+            watch_to_pay_ratio_percent: Number((room.latestMetrics.watch_to_pay_ratio * 100).toFixed(2)),
             online_viewers_count: room.latestMetrics.online_viewers_count,
             pay_combo_orders_count: room.latestMetrics.pay_combo_orders_count
         });
