@@ -1,0 +1,42 @@
+{
+  "name": "livestreaming-monitoring-backend",
+  "version": "1.0.0",
+  "description": "抖音直播多房间实时监控本地总控客户端 (Electron + Node.js)",
+  "main": "src/presentation/main.js",
+  "scripts": {
+    "start": "electron src/presentation/main.js",
+    "server": "node src/index.js",
+    "test": "node --test tests/*.test.js",
+    "build:win": "electron-builder --win --x64"
+  },
+  "keywords": [
+    "douyin",
+    "live-streaming",
+    "monitoring",
+    "electron"
+  ],
+  "author": "LiveStreamingDataMonitoring",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^34.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.livestreaming.monitoring",
+    "productName": "LiveStreamingDataMonitoring",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}

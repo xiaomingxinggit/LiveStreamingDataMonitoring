@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音直播多房间实时监控总控大屏</title>
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-card: #131b2e;
+            --bg-card-hover: #19233c;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-active: rgba(59, 130, 246, 0.4);
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        /* 顶部全局汇总看板 */
+        header.top-bar {
+            background: rgba(19, 27, 46, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 14px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-title h1 {
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .badge-live-pulse {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--accent-green);
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 500;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--accent-green);
+            animation: pulse-glow 1.8s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .summary-metrics {
+            display: flex;
+            align-items: center;
+            gap: 28px;
+        }
+
+        .summary-item {
+            text-align: right;
+        }
+
+        .summary-item .label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .summary-item .value {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+
+        .summary-item .value.highlight {
+            color: var(--accent-yellow);
+        }
+
+        .btn-export {
+            background: linear-gradient(135deg, #2563eb, #1d4ed8);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-export:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
+
+        /* 弹性多房间卡片布局容器 */
+        main.container {
+            flex: 1;
+            padding: 20px 24px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 动态网格类：根据房间数自适应 */
+        .elastic-grid {
+            display: grid;
+            gap: 20px;
+            width: 100%;
+        }
+
+        /* 1 个房间：单卡铺满 */
+        .elastic-grid.count-1 {
+            grid-template-columns: 1fr;
+        }
+
+        /* 2 个房间：双列并排 */
+        .elastic-grid.count-2 {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        /* 3 个房间：三列 */
+        .elastic-grid.count-3 {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        /* 4 个房间：2x2 方阵 */
+        .elastic-grid.count-4 {
+            grid-template-columns: repeat(2, 1fr);
+        }
+
+        /* 5个及以上：自适应流式网格 */
+        .elastic-grid.count-multi {
+            grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        }
+
+        /* 直播间卡片样式 */
+        .room-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .room-card:hover {
+            border-color: var(--border-active);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+            transform: translateY(-2px);
+        }
+
+        .room-card.offline {
+            opacity: 0.65;
+            filter: grayscale(0.5);
+        }
+
+        /* 卡片头部 */
+        .card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            padding-bottom: 12px;
+        }
+
+        .room-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .room-avatar {
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid rgba(255, 255, 255, 0.15);
+            background: #1f2937;
+        }
+
+        .room-titles h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+            max-width: 260px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .room-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        .room-status-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-weight: 500;
+        }
+
+        .room-status-badge.online {
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--accent-green);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+        }
+
+        .room-status-badge.offline {
+            background: rgba(239, 68, 68, 0.12);
+            color: var(--accent-red);
+            border: 1px solid rgba(239, 68, 68, 0.25);
+        }
+
+        /* 核心指标 2x2 或 3x2 格子 */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+        }
+
+        .metric-cell {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.04);
+            border-radius: 8px;
+            padding: 12px 14px;
+        }
+
+        .metric-cell .cell-title {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 4px;
+        }
+
+        .metric-cell .cell-value {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+        }
+
+        .metric-cell .cell-sub {
+            font-size: 11px;
+            color: var(--accent-green);
+            margin-top: 2px;
+        }
+
+        /* 讲解中商品区域 */
+        .explaining-section {
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .product-thumb {
+            width: 52px;
+            height: 52px;
+            border-radius: 6px;
+            object-fit: cover;
+            background: #1f2937;
+            flex-shrink: 0;
+        }
+
+        .product-details {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .product-title {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-main);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .product-stats {
+            display: flex;
+            gap: 14px;
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        .product-stats span strong {
+            color: var(--text-main);
+        }
+
+        /* 转化率进度小栏 */
+        .conversion-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--text-muted);
+            border-top: 1px solid rgba(255, 255, 255, 0.04);
+            padding-top: 10px;
+        }
+
+        /* 空状态占位符 */
+        .empty-placeholder {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: var(--text-muted);
+            padding: 80px 20px;
+        }
+
+        .empty-placeholder svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            stroke: #4b5563;
+        }
+
+        .empty-placeholder h3 {
+            font-size: 18px;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
+
+        .empty-placeholder p {
+            font-size: 13px;
+            max-width: 480px;
+            line-height: 1.6;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 顶部状态与全大盘汇总栏 -->
+    <header class="top-bar">
+        <div class="brand-title">
+            <span class="badge-live-pulse">
+                <span class="pulse-dot"></span>
+                <span>总控实时服务已就绪</span>
+            </span>
+            <h1>抖音直播多房间作战大屏</h1>
+        </div>
+
+        <div class="summary-metrics">
+            <div class="summary-item">
+                <div class="label">监控房间数</div>
+                <div class="value" id="sum-active-rooms">0 / 0</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">全大盘 GMV 汇总</div>
+                <div class="value highlight" id="sum-total-gmv">¥0.00</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">实时在线总人数</div>
+                <div class="value" id="sum-total-viewers">0</div>
+            </div>
+            <div class="summary-item">
+                <div class="label">累计成交总件数</div>
+                <div class="value" id="sum-total-orders">0</div>
+            </div>
+            <button class="btn-export" onclick="exportDataCsv()">
+                <svg width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8l-8 8-8-8"/></svg>
+                导出报表 (CSV)
+            </button>
+        </div>
+    </header>
+
+    <!-- 主展示区：弹性网格容器 -->
+    <main class="container">
+        <div class="elastic-grid count-multi" id="rooms-grid">
+            <!-- 动态渲染各房间卡片 -->
+        </div>
+
+        <!-- 初始无连接时的提示引导 -->
+        <div class="empty-placeholder" id="empty-state">
+            <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5m.75-9l3-3 2.25 2.25L15 7.5" />
+            </svg>
+            <h3>等待油猴哨兵接入</h3>
+            <p>在任意电脑浏览器中打开抖音电商罗盘实时大屏并开启油猴脚本，数据将自动接入并呈现在此大屏上。支持 1 个、3 个、5 个或更多房间动态自适应展示。</p>
+        </div>
+    </main>
+
+    <script>
+        const gridElement = document.getElementById('rooms-grid');
+        const emptyElement = document.getElementById('empty-state');
+
+        function formatCurrency(val) {
+            return '¥' + Number(val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatNumber(val) {
+            return Number(val || 0).toLocaleString('zh-CN');
+        }
+
+        // 更新全局顶栏
+        function updateSummary(summary) {
+            if (!summary) return;
+            document.getElementById('sum-active-rooms').textContent = `${summary.active_rooms_count} / ${summary.total_rooms_count}`;
+            document.getElementById('sum-total-gmv').textContent = formatCurrency(summary.total_gmv_amount_yuan);
+            document.getElementById('sum-total-viewers').textContent = formatNumber(summary.total_online_viewers_count);
+            document.getElementById('sum-total-orders').textContent = formatNumber(summary.total_pay_orders_count);
+        }
+
+        // 动态调整弹性网格类名
+        function applyGridClass(count) {
+            gridElement.className = 'elastic-grid';
+            if (count === 1) gridElement.classList.add('count-1');
+            else if (count === 2) gridElement.classList.add('count-2');
+            else if (count === 3) gridElement.classList.add('count-3');
+            else if (count === 4) gridElement.classList.add('count-4');
+            else gridElement.classList.add('count-multi');
+        }
+
+        // 渲染单张直播间卡片
+        function renderRoomCard(room) {
+            const m = room.latestMetrics || {};
+            const p = room.explainingProduct;
+            const isOnline = room.isOnline;
+            const statusClass = isOnline ? 'online' : 'offline';
+            const statusLabel = room.liveStatusText || (isOnline ? '正在直播' : '离线 未连接');
+            const avatar = room.avatarUri || 'https://p11.douyinpic.com/aweme/100x100/aweme-avatar/tos-cn-avt-0015_ef1bb18d8ffe7994a26ca23abf47f4ed.jpeg';
+            const velocity = room.velocity || {};
+
+            let productHtml = `
+                <div class="explaining-section">
+                    <div style="font-size:12px;color:#9ca3af;width:100%;text-align:center;">暂无正在讲解的商品</div>
+                </div>
+            `;
+
+            if (p && p.isExplaining && p.productName) {
+                productHtml = `
+                    <div class="explaining-section">
+                        <img class="product-thumb" src="${p.productImg || ''}" alt="商品主图" onerror="this.style.display='none'">
+                        <div class="product-details">
+                            <div class="product-title" title="${p.productName}">${p.productName}</div>
+                            <div class="product-stats">
+                                <span>讲解销量: <strong>${formatNumber(p.product_pay_orders_count)} 件</strong></span>
+                                <span>讲解金额: <strong>${formatCurrency(p.product_pay_amount_yuan)}</strong></span>
+                                <span>剩余库存: <strong>${formatNumber(p.product_stock_count)}</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+
+            return `
+                <div class="room-card ${isOnline ? '' : 'offline'}" id="card-${room.roomId}">
+                    <div class="card-header">
+                        <div class="room-info">
+                            <img class="room-avatar" src="${avatar}" alt="主播头像" onerror="this.src=''">
+                            <div class="room-titles">
+                                <h2 title="${room.shopName}">${room.shopName}</h2>
+                                <div class="room-meta">ID: ${room.roomId} | 平台: ${room.appPlatform || '抖音'}</div>
+                            </div>
+                        </div>
+                        <span class="room-status-badge ${statusClass}">${statusLabel}</span>
+                    </div>
+
+                    <div class="metrics-grid">
+                        <div class="metric-cell">
+                            <div class="cell-title">实时 GMV 金额</div>
+                            <div class="cell-value" style="color:var(--accent-yellow);">${formatCurrency(m.gmv_amount_yuan)}</div>
+                            <div class="cell-sub">+${formatCurrency(velocity.gmv_per_minute_yuan || 0)} /分</div>
+                        </div>
+                        <div class="metric-cell">
+                            <div class="cell-title">实时在线人数</div>
+                            <div class="cell-value" style="color:#60a5fa;">${formatNumber(m.online_viewers_count)}</div>
+                            <div class="cell-sub" style="color:#9ca3af;">成交人数: ${formatNumber(m.pay_users_count)}</div>
+                        </div>
+                        <div class="metric-cell">
+                            <div class="cell-title">累计成交件数</div>
+                            <div class="cell-value">${formatNumber(m.pay_combo_orders_count)}</div>
+                            <div class="cell-sub">+${velocity.orders_per_minute_count || 0} 单/分</div>
+                        </div>
+                        <div class="metric-cell">
+                            <div class="cell-title">千川投放消耗</div>
+                            <div class="cell-value" style="font-size:16px;">${formatCurrency(m.ad_cost_yuan)}</div>
+                        </div>
+                        <div class="metric-cell">
+                            <div class="cell-title">GPM (千次观看成交)</div>
+                            <div class="cell-value" style="font-size:16px;">${formatCurrency(m.gpm_amount_yuan)}</div>
+                        </div>
+                        <div class="metric-cell">
+                            <div class="cell-title">人均停留时长</div>
+                            <div class="cell-value" style="font-size:16px;">${m.avg_watch_duration_seconds || 0} 秒</div>
+                        </div>
+                    </div>
+
+                    ${productHtml}
+
+                    <div class="conversion-bar">
+                        <span>观看-成交率: ${(Number(m.watch_to_pay_ratio || 0) * 100).toFixed(2)}%</span>
+                        <span>点击-成交率: ${(Number(m.product_click_to_pay_ratio || 0) * 100).toFixed(2)}%</span>
+                        <span>曝光-进入率: ${(Number(m.exposure_to_watch_ratio || 0) * 100).toFixed(2)}%</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 全量更新房间
+        function updateDashboard(snapshot) {
+            if (!snapshot) return;
+            updateSummary(snapshot.summary);
+
+            const rooms = snapshot.rooms || [];
+            if (rooms.length === 0) {
+                emptyElement.style.display = 'flex';
+                gridElement.style.display = 'none';
+                return;
+            }
+
+            emptyElement.style.display = 'none';
+            gridElement.style.display = 'grid';
+
+            applyGridClass(rooms.length);
+
+            gridElement.innerHTML = rooms.map(renderRoomCard).join('');
+        }
+
+        // 建立 SSE 实时长连接
+        function connectSse() {
+            const eventSource = new EventSource('/api/stream/subscribe');
+
+            eventSource.onmessage = function (event) {
+                try {
+                    const snapshot = JSON.parse(event.data);
+                    updateDashboard(snapshot);
+                } catch (e) {
+                    console.error('解析推送数据异常:', e);
+                }
+            };
+
+            eventSource.onerror = function () {
+                eventSource.close();
+                // 3 秒后重连
+                setTimeout(connectSse, 3000);
+            };
+        }
+
+        // 导出报表
+        function exportDataCsv() {
+            window.location.href = '/api/export/csv';
+        }
+
+        // 初始立即建立连接
+        connectSse();
+    </script>
+</body>
+</html>
