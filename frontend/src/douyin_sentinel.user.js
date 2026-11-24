@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.1.0
+// @version      1.2.0
 // @description  实时监听拦截抖音电商罗盘大屏数据（基础信息、核心指标、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/*
@@ -10,6 +10,7 @@
 // @match        https://buyin.jinritemai.com/dashboard/*
 // @match        https://buyin.jinritemai.com/screen/*
 // @match        https://live.douyin.com/*
+// @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
@@ -28,14 +29,27 @@
     const CONFIG = {
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
         batchIntervalMs: 1000,
-        heartbeatIntervalMs: 5000,
+        heartbeatIntervalMs: 3000,
         maxQueueSize: 500,
         debug: true
     };
 
+    function extractRoomId(url, data) {
+        if (data && (data.room_id || data.roomId || data.live_room_id)) {
+            return String(data.room_id || data.roomId || data.live_room_id);
+        }
+        if (url && typeof url === 'string') {
+            const match = url.match(/[?&](?:room_id|live_room_id|roomId)=([0-9]+)/i) || url.match(/\/([0-9]{15,22})/);
+            if (match && match[1]) return match[1];
+        }
+        return '';
+    }
+
+    const initialRoomId = extractRoomId(window.location.href);
+
     const state = {
         connected: false,
-        roomId: '',
+        roomId: initialRoomId || '',
         shopName: '',
         capturedCount: 0,
         sentCount: 0,
@@ -54,7 +68,6 @@
     // =========================================================================
     function sanitizeText(value) {
         if (typeof value !== 'string') return value || '';
-        // 按照仓库规范：使用普通空格作为分隔符，替换 middle dots (U+00B7)
         return value.replace(/\u00B7/g, ' ').trim();
     }
 
@@ -65,27 +78,15 @@
         return Number((centsVal / 100).toFixed(2));
     }
 
-    function extractRoomId(url, data) {
-        if (data && (data.room_id || data.roomId)) {
-            return String(data.room_id || data.roomId);
-        }
-        if (url && typeof url === 'string') {
-            const match = url.match(/[?&](?:room_id|live_room_id|roomId)=([0-9]+)/i) || url.match(/\/([0-9]{15,22})/);
-            if (match && match[1]) return match[1];
-        }
-        return '';
-    }
-
     // =========================================================================
     // 3. 抖音电商罗盘专属协议解析器
     // =========================================================================
     const CompassParser = {
-        // 3.1 基础信息解析
         parseLiveBaseInfo: function (url, json) {
             const data = json.data;
             if (!data) return null;
 
-            const roomId = extractRoomId(url, data);
+            const roomId = extractRoomId(url, data) || state.roomId;
             if (roomId) state.roomId = roomId;
             const shopName = sanitizeText(data.nickname || '');
             if (shopName) state.shopName = shopName;
@@ -105,10 +106,12 @@
             };
         },
 
-        // 3.2 核心大盘指标解析 (GMV、流速、人货场转化率)
         parseCoreData: function (url, json) {
             const data = json.data;
             if (!data) return null;
+
+            const roomId = extractRoomId(url, data) || state.roomId;
+            if (roomId) state.roomId = roomId;
 
             const items = Array.isArray(data.core_data) ? data.core_data : [];
             const findItem = (name) => items.find(item => item.index_name === name);
@@ -117,7 +120,6 @@
                 return item && item.value && typeof item.value.value === 'number' ? item.value.value : 0;
             };
 
-            // GMV 优先从顶层 pay_amt 读取，以分为单位转元
             const totalPayCents = data.pay_amt?.value ?? getNum('pay_amt');
             const totalPayAllCents = data.pay_amt_all?.value ?? totalPayCents;
             const statCostCents = getNum('stat_cost');
@@ -127,16 +129,13 @@
                 eventType: 'CORE_METRICS',
                 roomId: state.roomId,
                 shopName: state.shopName,
-                // 金额明确单位为 yuan (元)
                 gmv_amount_yuan: parsePriceCentsToYuan(totalPayCents),
                 gmv_amount_all_yuan: parsePriceCentsToYuan(totalPayAllCents),
                 ad_cost_yuan: parsePriceCentsToYuan(statCostCents),
                 gpm_amount_yuan: parsePriceCentsToYuan(gpmCents),
-                // 人数、件数与流速
                 online_viewers_count: getNum('current_cnt'),
                 pay_users_count: getNum('pay_ucnt'),
                 pay_combo_orders_count: getNum('pay_combo_cnt'),
-                // 转化率与人均停留
                 watch_to_pay_ratio: Number(getNum('watch_pay_ucnt_ratio').toFixed(6)),
                 product_click_to_pay_ratio: Number(getNum('product_click_pay_ucnt_ratio').toFixed(6)),
                 exposure_to_watch_ratio: Number(getNum('watch_cnt_show_ratio').toFixed(6)),
@@ -144,10 +143,12 @@
             };
         },
 
-        // 3.3 正在讲解商品详情解析
         parseProductExplainDetail: function (url, json) {
             const data = json.data;
             if (!data) return null;
+
+            const roomId = extractRoomId(url, data) || state.roomId;
+            if (roomId) state.roomId = roomId;
 
             const payCents = data.pay_amt?.value || 0;
             const clickTrend = Array.isArray(data.click_data?.trend) ? data.click_data.trend.map(point => ({
@@ -171,7 +172,6 @@
             };
         },
 
-        // 3.4 实时公屏弹幕解析
         parseComments: function (url, json) {
             const data = json.data;
             if (!data || !Array.isArray(data.comments) || data.comments.length === 0) return null;
@@ -190,7 +190,6 @@
             };
         },
 
-        // 3.5 弹幕聚类关键词解析
         parseCommentCluster: function (url, json) {
             const data = json.data;
             if (!data || !Array.isArray(data.items) || data.items.length === 0) return null;
@@ -224,7 +223,6 @@
 
         let parsedPayload = null;
 
-        // 根据 URL 匹配罗盘对应的解析器
         if (url.includes('/live_screen/live_base_info')) {
             parsedPayload = CompassParser.parseLiveBaseInfo(url, json);
         } else if (url.includes('/live_screen/core_data')) {
@@ -245,6 +243,7 @@
                 pageUrl: window.location.href,
                 ...parsedPayload
             };
+            log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${state.roomId || '待解析'}`);
             enqueueEvent(envelope);
         }
     }
@@ -257,14 +256,14 @@
         state.pendingQueue.push(event);
 
         if (state.pendingQueue.length > CONFIG.maxQueueSize) {
-            state.pendingQueue.shift(); // 丢弃过久事件，防内存泄漏
+            state.pendingQueue.shift();
         }
         updateHud();
     }
 
     function sendToBackend(endpoint, data, onSuccess, onError) {
         if (typeof GM_xmlhttpRequest !== 'function') {
-            console.error('[Sentinel 哨兵] 错误: GM_xmlhttpRequest 不可用，请检查油猴权限');
+            console.error('[Sentinel 哨兵] 错误: GM_xmlhttpRequest 不可用');
             return;
         }
 
@@ -292,7 +291,6 @@
         });
     }
 
-    // 定时批量上报队列
     setInterval(() => {
         if (state.pendingQueue.length === 0) return;
 
@@ -307,7 +305,6 @@
             },
             (err) => {
                 state.connected = false;
-                // 失败时将前 15 条保留重新放入队首重试
                 state.pendingQueue.unshift(...batch.slice(0, 15));
                 updateHud();
                 log('回传本地总控失败:', err.message || err);
@@ -315,12 +312,16 @@
         );
     }, CONFIG.batchIntervalMs);
 
-    // 哨兵与总控心跳检测
     setInterval(() => {
+        // 如果当前没有从请求捕获到 roomId，再次从当前页面 URL 提取
+        if (!state.roomId) {
+            state.roomId = extractRoomId(window.location.href);
+        }
+
         sendToBackend(
             '/api/sentinel/heartbeat',
             {
-                sentinelVersion: '1.1.0',
+                sentinelVersion: '1.2.0',
                 roomId: state.roomId || 'unknown',
                 shopName: state.shopName || '',
                 capturedCount: state.capturedCount,
@@ -340,59 +341,118 @@
     }, CONFIG.heartbeatIntervalMs);
 
     // =========================================================================
-    // 6. 网络底层被动拦截 (Fetch & XHR Sniffing)
+    // 6. 双通道注入拦截：主页面 (Main World) + unsafeWindow 代理
     // =========================================================================
 
-    // 6.1 拦截 window.fetch
-    const originalFetch = window.fetch;
-    window.fetch = async function (...args) {
-        const response = await originalFetch.apply(this, args);
-        try {
-            const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
-            if (isTargetScreenApi(url)) {
-                // 使用 clone 避免消耗原始 response 流
-                const clone = response.clone();
-                clone.text().then(text => {
-                    processApiResponse(url, text, 'fetch');
-                }).catch(() => {});
-            }
-        } catch (e) {
-            log('Fetch Hook Exception:', e);
+    // 6.1 监听主页面派发的原生网络事件
+    window.addEventListener('message', function (event) {
+        if (event.data && event.data.source === 'DOUYIN_SENTINEL_RAW') {
+            const { url, text, channel } = event.data;
+            processApiResponse(url, text, channel);
         }
-        return response;
-    };
+    });
 
-    // 6.2 拦截 XMLHttpRequest
-    const originalXhrOpen = XMLHttpRequest.prototype.open;
-    const originalXhrSend = XMLHttpRequest.prototype.send;
+    // 6.2 往主页面环境注入脚本（直接劫持网页原生 XHR 与 Fetch，破除沙箱隔离）
+    function injectMainWorldHook() {
+        const scriptCode = `
+        (function() {
+            if (window.__douyin_sentinel_injected__) return;
+            window.__douyin_sentinel_injected__ = true;
 
-    XMLHttpRequest.prototype.open = function (method, url, ...rest) {
-        this._sentinelUrl = url;
-        return originalXhrOpen.apply(this, [method, url, ...rest]);
-    };
-
-    XMLHttpRequest.prototype.send = function (...args) {
-        this.addEventListener('load', function () {
-            try {
-                if (this._sentinelUrl && isTargetScreenApi(this._sentinelUrl)) {
-                    processApiResponse(this._sentinelUrl, this.responseText, 'xhr');
-                }
-            } catch (e) {
-                log('XHR Hook Exception:', e);
+            function isTargetUrl(url) {
+                if (!url || typeof url !== 'string') return false;
+                return url.includes('compass_api') && (
+                    url.includes('live_base_info') ||
+                    url.includes('core_data') ||
+                    url.includes('product_explain_detail') ||
+                    url.includes('professional/comment') ||
+                    url.includes('comment_cluster')
+                );
             }
-        });
-        return originalXhrSend.apply(this, args);
-    };
 
-    function isTargetScreenApi(url) {
-        if (!url) return false;
-        return url.includes('compass_api') && (
-            url.includes('live_base_info') ||
-            url.includes('core_data') ||
-            url.includes('product_explain_detail') ||
-            url.includes('professional/comment') ||
-            url.includes('comment_cluster')
-        );
+            function notifySentinel(url, text, channel) {
+                window.postMessage({
+                    source: 'DOUYIN_SENTINEL_RAW',
+                    url: url,
+                    text: text,
+                    channel: channel
+                }, '*');
+            }
+
+            // 1. Hook 原生 XMLHttpRequest
+            const originalXhrOpen = XMLHttpRequest.prototype.open;
+            const originalXhrSend = XMLHttpRequest.prototype.send;
+
+            XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+                this._sentinelUrl = typeof url === 'string' ? url : (url && url.toString ? url.toString() : '');
+                return originalXhrOpen.apply(this, [method, url, ...rest]);
+            };
+
+            XMLHttpRequest.prototype.send = function(...args) {
+                this.addEventListener('load', function() {
+                    try {
+                        if (this._sentinelUrl && isTargetUrl(this._sentinelUrl)) {
+                            notifySentinel(this._sentinelUrl, this.responseText, 'xhr');
+                        }
+                    } catch(e) {}
+                });
+                return originalXhrSend.apply(this, args);
+            };
+
+            // 2. Hook 原生 window.fetch
+            const originalFetch = window.fetch;
+            if (typeof originalFetch === 'function') {
+                window.fetch = async function(...args) {
+                    const response = await originalFetch.apply(this, args);
+                    try {
+                        const url = typeof args[0] === 'string' ? args[0] : (args[0]?.url || '');
+                        if (isTargetUrl(url)) {
+                            const clone = response.clone();
+                            clone.text().then(text => {
+                                notifySentinel(url, text, 'fetch');
+                            }).catch(() => {});
+                        }
+                    } catch(e) {}
+                    return response;
+                };
+            }
+
+            console.log('[Sentinel] 主世界网络拦截钩子已注入成功');
+        })();
+        `;
+
+        try {
+            const script = document.createElement('script');
+            script.textContent = scriptCode;
+            (document.head || document.documentElement).appendChild(script);
+            script.remove();
+        } catch (e) {
+            log('主页面脚本注入异常:', e);
+        }
+    }
+
+    // 立即执行主世界注入
+    injectMainWorldHook();
+
+    // 6.3 兜底：同步劫持 unsafeWindow
+    const targetWin = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
+    if (targetWin && targetWin !== window) {
+        try {
+            const origXhrOpen = targetWin.XMLHttpRequest.prototype.open;
+            const origXhrSend = targetWin.XMLHttpRequest.prototype.send;
+            targetWin.XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+                this._sentinelUrl = url;
+                return origXhrOpen.apply(this, [method, url, ...rest]);
+            };
+            targetWin.XMLHttpRequest.prototype.send = function (...args) {
+                this.addEventListener('load', function () {
+                    if (this._sentinelUrl && String(this._sentinelUrl).includes('compass_api')) {
+                        processApiResponse(String(this._sentinelUrl), this.responseText, 'xhr');
+                    }
+                });
+                return origXhrSend.apply(this, args);
+            };
+        } catch (e) {}
     }
 
     // =========================================================================
@@ -429,15 +489,6 @@
         `;
         document.body.appendChild(hudElement);
 
-        hudElement.addEventListener('mouseenter', () => {
-            hudElement.style.transform = 'translateY(-2px)';
-            hudElement.style.boxShadow = '0 6px 22px rgba(0, 0, 0, 0.55)';
-        });
-        hudElement.addEventListener('mouseleave', () => {
-            hudElement.style.transform = 'translateY(0)';
-            hudElement.style.boxShadow = '0 4px 18px rgba(0, 0, 0, 0.45)';
-        });
-
         hudElement.addEventListener('click', () => {
             const current = CONFIG.backendUrl;
             const newUrl = prompt('设置本地总控服务地址 (默认 http://127.0.0.1:28888):', current);
@@ -457,7 +508,7 @@
 
         const statusColor = state.connected ? '#10b981' : '#ef4444';
         const statusText = state.connected ? '总控已连接' : '等待总控软件';
-        const roomInfo = state.shopName || state.roomId || '正在检测大屏';
+        const roomInfo = state.shopName || (state.roomId ? `房间 ${state.roomId}` : '正在检测大屏');
 
         hudElement.innerHTML = `
             <span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${statusColor};box-shadow:0 0 8px ${statusColor};"></span>
@@ -470,26 +521,12 @@
         `;
     }
 
-    // 注册油猴管理菜单命令
-    if (typeof GM_registerMenuCommand === 'function') {
-        GM_registerMenuCommand('配置总控后端地址', () => {
-            const newUrl = prompt('设置本地总控服务地址:', CONFIG.backendUrl);
-            if (newUrl && newUrl.trim() !== '') {
-                CONFIG.backendUrl = newUrl.trim();
-                GM_setValue('backend_url', CONFIG.backendUrl);
-                alert(`已更新总控地址为: ${CONFIG.backendUrl}`);
-                updateHud();
-            }
-        });
-    }
-
-    // 页面加载完成后挂载 HUD
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', createHud);
     } else {
         createHud();
     }
-    setTimeout(createHud, 1500);
+    setTimeout(createHud, 1000);
 
-    log('抖音电商罗盘哨兵脚本已注入，等待大屏数据...');
+    log('抖音电商罗盘哨兵 v1.2.0 已注入就绪');
 })();

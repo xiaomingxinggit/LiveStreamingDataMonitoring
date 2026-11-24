@@ -43,12 +43,17 @@ class MetricsCalculator {
      * 获取或创建直播间状态记录
      */
     getOrCreateRoom(roomId, initialShopName = '') {
-        const id = String(roomId || 'unknown_room');
+        const id = String(roomId || 'unknown');
+        // 当真正房间ID到来时，清理掉临时占位的 unknown 记录
+        if (id !== 'unknown' && this.rooms.has('unknown')) {
+            this.rooms.delete('unknown');
+        }
+
         if (!this.rooms.has(id)) {
+            const defaultName = (id === 'unknown' || id === 'unknown_room') ? '正在接入大屏...' : `直播间 ${id.slice(-4)}`;
             this.rooms.set(id, {
                 roomId: id,
-                shopName: sanitizeText(initialShopName) || `直播间 ${id.slice(-4)}`,
-                isOnline: true,
+                shopName: sanitizeText(initialShopName) || defaultName,
                 liveStatusText: '未开播',
                 lastHeartbeatTs: Date.now(),
                 latestMetrics: {
