@@ -63,27 +63,39 @@ const CompassParser = {
             const item = findItem(name);
             return item && item.value && typeof item.value.value === 'number' ? item.value.value : 0;
         };
+        const getOptionalNum = (name) => {
+            const item = findItem(name);
+            return item && item.value && typeof item.value.value === 'number' ? item.value.value : null;
+        };
 
         const totalPayCents = data.pay_amt?.value ?? getNum('pay_amt');
         const totalPayAllCents = data.pay_amt_all?.value ?? totalPayCents;
-        const statCostCents = getNum('stat_cost');
-        const gpmCents = getNum('gpm');
+        const statCostCents = getOptionalNum('stat_cost');
+        const gpmCents = getOptionalNum('gpm');
+
+        const formatRatio = (val) => val !== null && val !== undefined ? Number(val.toFixed(6)) : null;
+        const watchPayRatio = getOptionalNum('watch_pay_ucnt_ratio');
 
         return {
             eventType: 'CORE_METRICS',
             roomId: currentContext.roomId || '',
             shopName: currentContext.shopName || '',
+            // 8 个重点指标 (显式单位)
+            gpm_amount_yuan: gpmCents !== null ? parsePriceCentsToYuan(gpmCents) : null,
+            watch_pay_ucnt_ratio: formatRatio(watchPayRatio),
+            watch_to_pay_ratio: formatRatio(watchPayRatio),
+            avg_watch_duration_seconds: getOptionalNum('avg_watch_duration') !== null ? Math.round(getOptionalNum('avg_watch_duration')) : null,
+            ad_cost_yuan: statCostCents !== null ? parsePriceCentsToYuan(statCostCents) : null,
+            old_fans_pay_ucnt_ratio: formatRatio(getOptionalNum('old_fans_pay_ucnt_ratio')),
+            interact_watch_ucnt_ratio: formatRatio(getOptionalNum('interact_watch_ucnt_ratio')),
+            follow_anchor_watch_ucnt_ratio: formatRatio(getOptionalNum('follow_anchor_watch_ucnt_ratio')),
+            real_refund_amt_ratio: formatRatio(getOptionalNum('real_refund_amt_ratio')),
+            // 其他大盘辅助指标
             gmv_amount_yuan: parsePriceCentsToYuan(totalPayCents),
             gmv_amount_all_yuan: parsePriceCentsToYuan(totalPayAllCents),
-            ad_cost_yuan: parsePriceCentsToYuan(statCostCents),
-            gpm_amount_yuan: parsePriceCentsToYuan(gpmCents),
-            online_viewers_count: getNum('current_cnt'),
-            pay_users_count: getNum('pay_ucnt'),
-            pay_combo_orders_count: getNum('pay_combo_cnt'),
-            watch_to_pay_ratio: Number(getNum('watch_pay_ucnt_ratio').toFixed(6)),
-            product_click_to_pay_ratio: Number(getNum('product_click_pay_ucnt_ratio').toFixed(6)),
-            exposure_to_watch_ratio: Number(getNum('watch_cnt_show_ratio').toFixed(6)),
-            avg_watch_duration_seconds: Math.round(getNum('avg_watch_duration'))
+            online_viewers_count: getNum('current_cnt') || 0,
+            pay_users_count: getNum('pay_ucnt') || 0,
+            pay_combo_orders_count: getNum('pay_combo_cnt') || 0
         };
     },
 

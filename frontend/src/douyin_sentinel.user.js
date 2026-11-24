@@ -1,15 +1,11 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.4.0
+// @version      1.5.0
 // @description  实时监听拦截抖音电商罗盘大屏数据（基础信息、核心指标、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
-// @match        https://compass.jinritemai.com/screen/*
-// @match        https://compass.jinritemai.com/shop/live/*
-// @match        https://compass.jinritemai.com/*
-// @match        https://buyin.jinritemai.com/dashboard/*
-// @match        https://buyin.jinritemai.com/screen/*
-// @match        https://live.douyin.com/*
+// @match        https://compass.jinritemai.com/screen/live/shop*
+// @noframes
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -23,34 +19,37 @@
 (function () {
     'use strict';
 
+    function getLivePageRoomId(href) {
+        const url = new URL(href);
+        if (url.origin !== 'https://compass.jinritemai.com' || url.pathname !== '/screen/live/shop') return '';
+
+        const roomIds = url.searchParams.getAll('live_room_id');
+        return roomIds.length === 1 && /^[1-9]\d*$/.test(roomIds[0]) ? roomIds[0] : '';
+    }
+
+    const browserWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
+    const roomId = getLivePageRoomId(window.location.href);
+    if (!roomId || browserWindow.self !== browserWindow.top) return;
+
+    function isActiveLivePage() {
+        return getLivePageRoomId(window.location.href) === roomId;
+    }
+
     // =========================================================================
     // 1. 系统配置与运行时状态
     // =========================================================================
     const CONFIG = {
-        version: '1.4.0',
+        version: '1.5.0',
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
-        batchIntervalMs: 1000,
         heartbeatIntervalMs: 3000,
+        retryDelayMs: 1000,
+        maxBatchSize: 30,
         maxQueueSize: 500,
         debug: true
     };
 
-    function extractRoomId(url, data) {
-        if (data && (data.room_id || data.roomId || data.live_room_id)) {
-            return String(data.room_id || data.roomId || data.live_room_id);
-        }
-        if (url && typeof url === 'string') {
-            const match = url.match(/[?&](?:room_id|live_room_id|roomId)=([0-9]+)/i) || url.match(/\/([0-9]{15,22})/);
-            if (match && match[1]) return match[1];
-        }
-        return '';
-    }
-
-    const initialRoomId = extractRoomId(window.location.href);
-
     const state = {
         connected: false,
-        roomId: initialRoomId || '',
         shopName: '',
         responseCount: 0,
         capturedCount: 0,
@@ -85,18 +84,16 @@
     // 3. 抖音电商罗盘专属协议解析器
     // =========================================================================
     const CompassParser = {
-        parseLiveBaseInfo: function (url, json) {
+        parseLiveBaseInfo: function (json) {
             const data = json.data;
             if (!data) return null;
 
-            const roomId = extractRoomId(url, data) || state.roomId;
-            if (roomId) state.roomId = roomId;
             const shopName = sanitizeText(data.nickname || '');
             if (shopName) state.shopName = shopName;
 
             return {
                 eventType: 'ROOM_BASE_INFO',
-                roomId: roomId,
+                roomId,
                 shopName: shopName,
                 appPlatform: sanitizeText(data.app_platform || '抖音'),
                 isEcomRoom: Boolean(data.is_ecom_room),
@@ -109,12 +106,9 @@
             };
         },
 
-        parseCoreData: function (url, json) {
+        parseCoreData: function (json) {
             const data = json.data;
             if (!data) return null;
-
-            const roomId = extractRoomId(url, data) || state.roomId;
-            if (roomId) state.roomId = roomId;
 
             const items = Array.isArray(data.core_data) ? data.core_data : [];
             const findItem = (name) => items.find(item => item.index_name === name);
@@ -122,36 +116,45 @@
                 const item = findItem(name);
                 return item && item.value && typeof item.value.value === 'number' ? item.value.value : 0;
             };
+            const getOptionalNum = (name) => {
+                const item = findItem(name);
+                return item && item.value && typeof item.value.value === 'number' ? item.value.value : null;
+            };
 
             const totalPayCents = data.pay_amt?.value ?? getNum('pay_amt');
             const totalPayAllCents = data.pay_amt_all?.value ?? totalPayCents;
-            const statCostCents = getNum('stat_cost');
-            const gpmCents = getNum('gpm');
+            const statCostCents = getOptionalNum('stat_cost');
+            const gpmCents = getOptionalNum('gpm');
+
+            const formatRatio = (val) => val !== null && val !== undefined ? Number(val.toFixed(6)) : null;
+            const watchPayRatio = getOptionalNum('watch_pay_ucnt_ratio');
 
             return {
                 eventType: 'CORE_METRICS',
-                roomId: state.roomId,
+                roomId,
                 shopName: state.shopName,
+                // 用户要求的 8 个指标 (显式单位)
+                gpm_amount_yuan: gpmCents !== null ? parsePriceCentsToYuan(gpmCents) : null,
+                watch_pay_ucnt_ratio: formatRatio(watchPayRatio),
+                watch_to_pay_ratio: formatRatio(watchPayRatio),
+                avg_watch_duration_seconds: getOptionalNum('avg_watch_duration') !== null ? Math.round(getOptionalNum('avg_watch_duration')) : null,
+                ad_cost_yuan: statCostCents !== null ? parsePriceCentsToYuan(statCostCents) : null,
+                old_fans_pay_ucnt_ratio: formatRatio(getOptionalNum('old_fans_pay_ucnt_ratio')),
+                interact_watch_ucnt_ratio: formatRatio(getOptionalNum('interact_watch_ucnt_ratio')),
+                follow_anchor_watch_ucnt_ratio: formatRatio(getOptionalNum('follow_anchor_watch_ucnt_ratio')),
+                real_refund_amt_ratio: formatRatio(getOptionalNum('real_refund_amt_ratio')),
+                // 基础大盘字段
                 gmv_amount_yuan: parsePriceCentsToYuan(totalPayCents),
                 gmv_amount_all_yuan: parsePriceCentsToYuan(totalPayAllCents),
-                ad_cost_yuan: parsePriceCentsToYuan(statCostCents),
-                gpm_amount_yuan: parsePriceCentsToYuan(gpmCents),
-                online_viewers_count: getNum('current_cnt'),
-                pay_users_count: getNum('pay_ucnt'),
-                pay_combo_orders_count: getNum('pay_combo_cnt'),
-                watch_to_pay_ratio: Number(getNum('watch_pay_ucnt_ratio').toFixed(6)),
-                product_click_to_pay_ratio: Number(getNum('product_click_pay_ucnt_ratio').toFixed(6)),
-                exposure_to_watch_ratio: Number(getNum('watch_cnt_show_ratio').toFixed(6)),
-                avg_watch_duration_seconds: Math.round(getNum('avg_watch_duration'))
+                online_viewers_count: getNum('current_cnt') || 0,
+                pay_users_count: getNum('pay_ucnt') || 0,
+                pay_combo_orders_count: getNum('pay_combo_cnt') || 0
             };
         },
 
-        parseProductExplainDetail: function (url, json) {
+        parseProductExplainDetail: function (json) {
             const data = json.data;
             if (!data) return null;
-
-            const roomId = extractRoomId(url, data) || state.roomId;
-            if (roomId) state.roomId = roomId;
 
             const payCents = data.pay_amt?.value || 0;
             const clickTrend = Array.isArray(data.click_data?.trend) ? data.click_data.trend.map(point => ({
@@ -162,7 +165,7 @@
 
             return {
                 eventType: 'EXPLAINING_PRODUCT',
-                roomId: state.roomId,
+                roomId,
                 productId: String(data.product_id || ''),
                 productName: sanitizeText(data.product_name || ''),
                 productImg: data.product_img || '',
@@ -175,7 +178,7 @@
             };
         },
 
-        parseComments: function (url, json) {
+        parseComments: function (json) {
             const data = json.data;
             if (!data || !Array.isArray(data.comments) || data.comments.length === 0) return null;
 
@@ -188,12 +191,12 @@
 
             return {
                 eventType: 'LIVE_COMMENTS',
-                roomId: state.roomId,
+                roomId,
                 comments: comments
             };
         },
 
-        parseCommentCluster: function (url, json) {
+        parseCommentCluster: function (json) {
             const data = json.data;
             if (!data || !Array.isArray(data.items) || data.items.length === 0) return null;
 
@@ -205,7 +208,7 @@
 
             return {
                 eventType: 'COMMENT_CLUSTER',
-                roomId: state.roomId,
+                roomId,
                 clusters: clusters
             };
         }
@@ -224,9 +227,14 @@
     const responsePreviewLimit = 12000;
 
     function processApiResponse(url, rawText, channel, readError = false) {
-        if (typeof url !== 'string') return;
-        const route = captureRoutes.find(candidate => url.includes(candidate.path));
+        if (!isActiveLivePage() || typeof url !== 'string') return;
+        const { pathname, searchParams } = new URL(url);
+        const path = pathname.replace(/\/$/, '');
+        const route = captureRoutes.find(candidate => path.endsWith(candidate.path));
         if (!route) return;
+
+        const requestRoomIds = ['room_id', 'live_room_id', 'roomId'].flatMap(name => searchParams.getAll(name));
+        if (requestRoomIds.some(id => id !== roomId)) return;
 
         const text = typeof rawText === 'string' ? rawText : '';
         const observation = {
@@ -251,7 +259,7 @@
                 return;
             }
 
-            const parsedPayload = json && typeof json === 'object' ? route.parse(url, json) : null;
+            const parsedPayload = json && typeof json === 'object' ? route.parse(json) : null;
             if (!parsedPayload) return;
 
             observation.status = 'parsed';
@@ -263,7 +271,7 @@
                 pageUrl: window.location.href,
                 ...parsedPayload
             };
-            log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${state.roomId || '待解析'}`);
+            log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${roomId}`);
             enqueueEvent(envelope);
         } catch (error) {
             observation.status = 'parseError';
@@ -276,77 +284,101 @@
     // =========================================================================
     // 5. 消息队列与本地回传传输层 (GM_xmlhttpRequest)
     // =========================================================================
+    let activeBatch = null;
+
     function enqueueEvent(event) {
         state.capturedCount++;
         state.pendingQueue.push(event);
 
-        if (state.pendingQueue.length > CONFIG.maxQueueSize) {
+        if (state.pendingQueue.length + (activeBatch?.length || 0) > CONFIG.maxQueueSize) {
             state.pendingQueue.shift();
         }
+        flushPendingEvents();
     }
 
     function sendToBackend(endpoint, data, onSuccess, onError) {
         if (typeof GM_xmlhttpRequest !== 'function') {
-            console.error('[Sentinel 哨兵] 错误: GM_xmlhttpRequest 不可用');
+            onError(new Error('GM_xmlhttpRequest 不可用'));
             return;
         }
 
-        GM_xmlhttpRequest({
-            method: 'POST',
-            url: `${CONFIG.backendUrl}${endpoint}`,
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            data: JSON.stringify(data),
-            timeout: 4000,
-            onload: function (res) {
-                if (res.status >= 200 && res.status < 300) {
-                    if (onSuccess) onSuccess(res.responseText);
-                } else {
-                    if (onError) onError(new Error(`Server error: HTTP ${res.status}`));
-                }
-            },
-            onerror: function (err) {
-                if (onError) onError(err);
-            },
-            ontimeout: function () {
-                if (onError) onError(new Error('Request timed out'));
-            }
-        });
+        let settled = false;
+        function finish(callback, value) {
+            if (settled) return;
+            settled = true;
+            callback(value);
+        }
+
+        try {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: `${CONFIG.backendUrl}${endpoint}`,
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                data: JSON.stringify(data),
+                timeout: 4000,
+                onload: (response) => {
+                    if (response.status >= 200 && response.status < 300) {
+                        finish(onSuccess, response.responseText);
+                    } else {
+                        finish(onError, new Error(`Server error: HTTP ${response.status}`));
+                    }
+                },
+                onerror: error => finish(onError, error),
+                ontimeout: () => finish(onError, new Error('Request timed out')),
+                onabort: () => finish(onError, new Error('Request aborted'))
+            });
+        } catch (error) {
+            finish(onError, error);
+        }
     }
 
-    setInterval(() => {
-        if (state.pendingQueue.length === 0) return;
+    function flushPendingEvents() {
+        if (!isActiveLivePage() || activeBatch || state.pendingQueue.length === 0) return;
+        activeBatch = state.pendingQueue.splice(0, CONFIG.maxBatchSize);
+        sendActiveBatch();
+    }
 
-        const batch = state.pendingQueue.splice(0, 30);
+    function sendActiveBatch() {
+        const batch = activeBatch;
+        if (!isActiveLivePage()) {
+            state.pendingQueue.unshift(...batch);
+            activeBatch = null;
+            return;
+        }
+
         sendToBackend(
             '/api/stream/events',
             { events: batch },
             () => {
+                activeBatch = null;
                 state.sentCount += batch.length;
                 state.connected = true;
                 updateHud();
+                flushPendingEvents();
             },
-            (err) => {
+            (error) => {
                 state.connected = false;
-                state.pendingQueue.unshift(...batch.slice(0, 15));
                 updateHud();
-                log('回传本地总控失败:', err.message || err);
+                log('回传本地总控失败:', error?.message || error);
+                // 保留整批事件和原有事件 ID，避免重试时丢数据或改变顺序。
+                setTimeout(sendActiveBatch, CONFIG.retryDelayMs);
             }
         );
-    }, CONFIG.batchIntervalMs);
+    }
 
     setInterval(() => {
-        // 如果当前没有从请求捕获到 roomId，再次从当前页面 URL 提取
-        if (!state.roomId) {
-            state.roomId = extractRoomId(window.location.href);
+        if (!isActiveLivePage()) {
+            updateHud();
+            return;
         }
 
         sendToBackend(
             '/api/sentinel/heartbeat',
             {
                 sentinelVersion: CONFIG.version,
-                roomId: state.roomId || 'unknown',
+                roomId,
                 shopName: state.shopName || '',
                 capturedCount: state.capturedCount,
                 sentCount: state.sentCount,
@@ -368,12 +400,46 @@
     // 6. 页面网络响应监听
     // =========================================================================
 
-    function installNetworkHooks(pageWindow, paths, notify) {
+    function installNetworkHooks(pageWindow, paths, canCapture, notify) {
         const xhrPrototype = pageWindow.XMLHttpRequest.prototype;
         const { open, send } = xhrPrototype;
         const eventPrototype = pageWindow.EventTarget?.prototype || xhrPrototype;
         const { addEventListener, removeEventListener } = eventPrototype;
         const observers = new WeakMap();
+
+        const requiredCoreMetrics = [
+            'gpm',
+            'watch_pay_ucnt_ratio',
+            'avg_watch_duration',
+            'stat_cost',
+            'old_fans_pay_ucnt_ratio',
+            'interact_watch_ucnt_ratio',
+            'follow_anchor_watch_ucnt_ratio',
+            'real_refund_amt_ratio'
+        ];
+
+        function enhanceCoreDataUrl(value) {
+            if (!value || typeof value !== 'string') return value;
+            if (!value.includes('/live_screen/core_data')) return value;
+            try {
+                const url = new URL(value, pageWindow.location.href);
+                const current = (url.searchParams.get('index_selected') || '').split(',').filter(Boolean);
+                let changed = false;
+                for (const m of requiredCoreMetrics) {
+                    if (!current.includes(m)) {
+                        current.push(m);
+                        changed = true;
+                    }
+                }
+                if (changed) {
+                    url.searchParams.set('index_selected', current.join(','));
+                    return url.href;
+                }
+            } catch {
+                // 原样返回
+            }
+            return value;
+        }
 
         function targetUrl(value) {
             if (!value) return '';
@@ -422,6 +488,7 @@
             function captureResponse() {
                 if (handled) return;
                 cleanup();
+                if (!canCapture()) return;
 
                 const url = targetUrl(xhr.responseURL) || requestedUrl;
                 if (!url || xhr.status === 0) return;
@@ -451,15 +518,16 @@
         }
 
         xhrPrototype.open = function (method, url, ...args) {
-            const result = open.apply(this, [method, url, ...args]);
+            const finalUrl = enhanceCoreDataUrl(url);
+            const result = open.apply(this, [method, finalUrl, ...args]);
             observers.get(this)?.();
             // 在页面注册后续回调前开始监听，防止响应被同步清空。
-            observeXhr(this, targetUrl(url));
+            if (canCapture()) observeXhr(this, targetUrl(finalUrl));
             return result;
         };
 
         xhrPrototype.send = function (...args) {
-            if (!observers.has(this)) observeXhr(this, '');
+            if (canCapture() && !observers.has(this)) observeXhr(this, '');
             try {
                 return send.apply(this, args);
             } catch (error) {
@@ -471,7 +539,12 @@
         const originalFetch = pageWindow.fetch;
         if (typeof originalFetch === 'function') {
             pageWindow.fetch = async function (...args) {
+                const capture = canCapture();
+                if (args[0] && typeof args[0] === 'string') {
+                    args[0] = enhanceCoreDataUrl(args[0]);
+                }
                 const response = await originalFetch.apply(this, args);
+                if (!capture || !canCapture()) return response;
                 const input = args[0];
                 const url = targetUrl(response.url) || targetUrl(input?.url || input);
                 if (!url) return response;
@@ -507,7 +580,9 @@
             const script = document.currentScript;
             const post = window.postMessage.bind(window);
             const origin = window.location.origin;
-            (${installNetworkHooks.toString()})(window, ${JSON.stringify(capturePaths)}, (url, text, channel, readError) => {
+            const getLivePageRoomId = ${getLivePageRoomId.toString()};
+            const canCapture = () => getLivePageRoomId(window.location.href) === ${JSON.stringify(roomId)};
+            (${installNetworkHooks.toString()})(window, ${JSON.stringify(capturePaths)}, canCapture, (url, text, channel, readError) => {
                 post({ source: ${JSON.stringify(captureSource)}, url, text, channel, readError }, origin);
             });
             script.dataset.sentinelCaptureReady = 'true';
@@ -532,8 +607,7 @@
         }
 
         try {
-            const pageWindow = typeof unsafeWindow === 'undefined' ? window : unsafeWindow;
-            installNetworkHooks(pageWindow, capturePaths, processApiResponse);
+            installNetworkHooks(browserWindow, capturePaths, isActiveLivePage, processApiResponse);
             log('备用网络监听已就绪');
         } catch (error) {
             log('备用网络监听未能安装:', error.message);
@@ -557,7 +631,7 @@
     let hud = null;
 
     function createHud() {
-        if (hud || !document.body) return;
+        if (hud || !document.body || !isActiveLivePage()) return;
 
         const host = document.createElement('div');
         host.id = 'douyin-sentinel-hud';
@@ -578,7 +652,7 @@
                     --mono: "Cascadia Mono", "Consolas", monospace;
                 }
                 *, *::before, *::after { box-sizing: border-box; }
-                [hidden] { display: none !important; }
+                :host([hidden]), [hidden] { display: none !important; }
                 button { font: inherit; cursor: pointer; color: inherit; }
                 button:focus-visible, summary:focus-visible { outline: 2px solid var(--mint); outline-offset: 3px; }
                 #douyin-sentinel-toggle {
@@ -699,6 +773,7 @@
         `;
         const find = name => root.querySelector(`#douyin-sentinel-${name}`);
         hud = {
+            host,
             panel: find('panel'),
             toggle: find('toggle'),
             toggleStatus: find('toggle-status'),
@@ -805,13 +880,15 @@
 
     function updateHud() {
         if (!hud) return;
+        hud.host.hidden = !isActiveLivePage();
+        if (hud.host.hidden) return;
 
         hud.toggleStatus.textContent = state.responseCount > 0 ? `响应 ${state.responseCount}` : '等待响应';
         if (hud.panel.hidden) return;
 
         hud.connection.textContent = state.connected ? '总控已连接' : '等待总控连接';
         hud.connection.dataset.connected = String(state.connected);
-        const room = state.roomId ? `房间 ${state.roomId}` : '等待识别房间';
+        const room = `房间 ${roomId}`;
         hud.room.textContent = sanitizeText([state.shopName, room].filter(Boolean).join('  '));
         hud.responseCount.textContent = String(state.responseCount);
         hud.capturedCount.textContent = String(state.capturedCount);
@@ -822,6 +899,14 @@
             if (observation) renderResponse(route, observation);
         }
     }
+
+    function refreshHudForLocation() {
+        if (hud) updateHud();
+        else createHud();
+    }
+
+    window.addEventListener('popstate', refreshHudForLocation);
+    browserWindow.navigation?.addEventListener('currententrychange', refreshHudForLocation);
 
     if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', createHud);

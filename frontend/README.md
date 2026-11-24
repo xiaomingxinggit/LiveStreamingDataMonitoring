@@ -1,6 +1,6 @@
 # 抖音电商罗盘大屏数据监控哨兵 (Frontend Sentinel UserScript)
 
-该子项目是基于 **Tampermonkey (油猴)** 构建的前端数据监听与清洗哨兵。它运行在浏览器中已登录商家的抖音电商罗盘大屏页面（`https://compass.jinritemai.com/*`），通过被动嗅探拦截网络报文，自动提取直播间大盘数据、清洗并以标准结构安全回传至用户本地的 Windows 总控客户端。
+该子项目是基于 **Tampermonkey (油猴)** 构建的前端数据监听与清洗哨兵。它只在抖音电商罗盘的 `/screen/live/shop` 顶层页面启动，地址须包含有效的 `live_room_id`。它监听该房间的网络响应，清洗数据并回传给本地 Windows 总控客户端。
 
 ---
 
@@ -18,7 +18,8 @@
    - 明确所有金额与时长的度量单位（如 `gmv_amount_yuan`、`avg_watch_duration_seconds`）。
 4. **跨域传输与弹性队列**：
    - 借助 `GM_xmlhttpRequest` 突破浏览器混合内容与 CORS 跨域策略，直接与本地 `http://127.0.0.1:28888` 通信。
-   - 具备 500 条环形缓冲队列与失败自动重发机制，总控短暂重启不丢失关键事件。
+   - 事件解析成功后立即回传。在途请求完成后立即发送后续事件，失败时保留原批次并在 1 秒后重试，最多缓冲 500 条。
+   - 罗盘响应到达后才有新数据。核心指标随罗盘页面轮询更新，3 秒一次的哨兵心跳用于标记连接状态。
 5. **页面浮动状态指示栏 (HUD)**：
    - 页面右下角显示小巧半透明状态栏，展示连接状态、当前房间、捕获数与回传数，支持一键点击修改总控端口。
 
@@ -34,7 +35,7 @@
 1. 打开浏览器 Tampermonkey 管理面板，点击 **“添加新脚本”**（`+` 图标）。
 2. 将 [douyin_sentinel.user.js](file:///e:/Codex/LiveStreamingDataMonitoring/frontend/src/douyin_sentinel.user.js) 中的全部代码复制并粘贴到编辑器中。
 3. 按 `Ctrl + S` 保存脚本。
-4. 打开或刷新抖音电商罗盘实时大屏（例如 `https://compass.jinritemai.com/shop/live/live_screen/...`）。
+4. 打开或刷新直播间的罗盘大屏，例如 `https://compass.jinritemai.com/screen/live/shop?live_room_id=1234567890123456789`。
 5. 页面右下角将出现 **“电商罗盘哨兵”** 浮动指示条，显示监听就绪。
 
 ### 3. 配置本地总控地址

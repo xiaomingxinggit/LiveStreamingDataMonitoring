@@ -59,13 +59,18 @@ class MetricsCalculator {
                 latestMetrics: {
                     gmv_amount_yuan: 0,
                     gmv_amount_all_yuan: 0,
-                    ad_cost_yuan: 0,
-                    gpm_amount_yuan: 0,
+                    ad_cost_yuan: null,
+                    gpm_amount_yuan: null,
                     online_viewers_count: 0,
                     pay_users_count: 0,
                     pay_combo_orders_count: 0,
-                    avg_watch_duration_seconds: 0,
-                    watch_to_pay_ratio: 0,
+                    avg_watch_duration_seconds: null,
+                    watch_pay_ucnt_ratio: null,
+                    watch_to_pay_ratio: null,
+                    old_fans_pay_ucnt_ratio: null,
+                    interact_watch_ucnt_ratio: null,
+                    follow_anchor_watch_ucnt_ratio: null,
+                    real_refund_amt_ratio: null,
                     product_click_to_pay_ratio: 0
                 },
                 explainingProduct: null,
@@ -149,16 +154,42 @@ class MetricsCalculator {
 
     _applyCoreMetrics(room, event) {
         // 更新当前各项指标 (单位明确)
-        room.latestMetrics.gmv_amount_yuan = Number(event.gmv_amount_yuan ?? room.latestMetrics.gmv_amount_yuan);
-        room.latestMetrics.gmv_amount_all_yuan = Number(event.gmv_amount_all_yuan ?? room.latestMetrics.gmv_amount_all_yuan);
-        room.latestMetrics.ad_cost_yuan = Number(event.ad_cost_yuan ?? room.latestMetrics.ad_cost_yuan);
-        room.latestMetrics.gpm_amount_yuan = Number(event.gpm_amount_yuan ?? room.latestMetrics.gpm_amount_yuan);
-        room.latestMetrics.online_viewers_count = Number(event.online_viewers_count ?? room.latestMetrics.online_viewers_count);
-        room.latestMetrics.pay_users_count = Number(event.pay_users_count ?? room.latestMetrics.pay_users_count);
-        room.latestMetrics.pay_combo_orders_count = Number(event.pay_combo_orders_count ?? room.latestMetrics.pay_combo_orders_count);
-        room.latestMetrics.avg_watch_duration_seconds = Number(event.avg_watch_duration_seconds ?? room.latestMetrics.avg_watch_duration_seconds);
-        room.latestMetrics.watch_to_pay_ratio = Number(event.watch_to_pay_ratio ?? room.latestMetrics.watch_to_pay_ratio);
-        room.latestMetrics.product_click_to_pay_ratio = Number(event.product_click_to_pay_ratio ?? room.latestMetrics.product_click_to_pay_ratio);
+        room.latestMetrics.gmv_amount_yuan = Number(event.gmv_amount_yuan ?? room.latestMetrics.gmv_amount_yuan ?? 0);
+        room.latestMetrics.gmv_amount_all_yuan = Number(event.gmv_amount_all_yuan ?? room.latestMetrics.gmv_amount_all_yuan ?? 0);
+        if (event.ad_cost_yuan !== undefined && event.ad_cost_yuan !== null) {
+            room.latestMetrics.ad_cost_yuan = Number(event.ad_cost_yuan);
+        }
+        if (event.gpm_amount_yuan !== undefined && event.gpm_amount_yuan !== null) {
+            room.latestMetrics.gpm_amount_yuan = Number(event.gpm_amount_yuan);
+        }
+        room.latestMetrics.online_viewers_count = Number(event.online_viewers_count ?? room.latestMetrics.online_viewers_count ?? 0);
+        room.latestMetrics.pay_users_count = Number(event.pay_users_count ?? room.latestMetrics.pay_users_count ?? 0);
+        room.latestMetrics.pay_combo_orders_count = Number(event.pay_combo_orders_count ?? room.latestMetrics.pay_combo_orders_count ?? 0);
+        if (event.avg_watch_duration_seconds !== undefined && event.avg_watch_duration_seconds !== null) {
+            room.latestMetrics.avg_watch_duration_seconds = event.avg_watch_duration_seconds;
+        }
+
+        const incomingWatchRatio = (event.watch_pay_ucnt_ratio !== undefined && event.watch_pay_ucnt_ratio !== null)
+            ? event.watch_pay_ucnt_ratio
+            : event.watch_to_pay_ratio;
+        if (incomingWatchRatio !== undefined && incomingWatchRatio !== null) {
+            room.latestMetrics.watch_pay_ucnt_ratio = incomingWatchRatio;
+            room.latestMetrics.watch_to_pay_ratio = incomingWatchRatio;
+        }
+
+        if (event.old_fans_pay_ucnt_ratio !== undefined && event.old_fans_pay_ucnt_ratio !== null) {
+            room.latestMetrics.old_fans_pay_ucnt_ratio = event.old_fans_pay_ucnt_ratio;
+        }
+        if (event.interact_watch_ucnt_ratio !== undefined && event.interact_watch_ucnt_ratio !== null) {
+            room.latestMetrics.interact_watch_ucnt_ratio = event.interact_watch_ucnt_ratio;
+        }
+        if (event.follow_anchor_watch_ucnt_ratio !== undefined && event.follow_anchor_watch_ucnt_ratio !== null) {
+            room.latestMetrics.follow_anchor_watch_ucnt_ratio = event.follow_anchor_watch_ucnt_ratio;
+        }
+        if (event.real_refund_amt_ratio !== undefined && event.real_refund_amt_ratio !== null) {
+            room.latestMetrics.real_refund_amt_ratio = event.real_refund_amt_ratio;
+        }
+        room.latestMetrics.product_click_to_pay_ratio = Number(event.product_click_to_pay_ratio ?? room.latestMetrics.product_click_to_pay_ratio ?? 0);
 
         // 追加历史采样点并维护窗口大小 (记录 GPM 与 观看-成交率)
         const now = Date.now();

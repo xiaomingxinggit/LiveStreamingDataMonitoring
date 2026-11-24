@@ -7,7 +7,8 @@ const { CompassParser } = require('../src/parser');
 const captures = [
     'compass.jinritemai.com-官方.har',
     'compass.jinritemai.com-女鞋.har',
-    'compass.jinritemai.com-鞋类.har'
+    'compass.jinritemai.com-鞋类.har',
+    'compass.jinritemai.com-鞋类大屏8个参数.har'
 ];
 
 for (const capture of captures) {
@@ -39,15 +40,42 @@ for (const capture of captures) {
                 context.shopName = parsed.shopName;
             } else if (endpoint === 'core_data') {
                 const parsed = CompassParser.parseCoreData(request.url, json, context);
-                const metricValue = name => data.core_data.find(item => item.index_name === name).value.value;
+                const findItem = name => data.core_data.find(item => item.index_name === name);
+                const metricValue = name => findItem(name)?.value?.value;
                 assert.equal(parsed.roomId, roomId);
                 assert.equal(parsed.shopName, context.shopName);
-                assert.equal(parsed.gmv_amount_yuan, data.pay_amt.value / 100);
-                assert.ok(parsed.gmv_amount_yuan > 0);
-                assert.equal(parsed.online_viewers_count, metricValue('current_cnt'));
-                assert.ok(parsed.online_viewers_count > 0);
-                assert.equal(parsed.ad_cost_yuan, metricValue('stat_cost') / 100);
-                assert.equal(parsed.pay_users_count, metricValue('pay_ucnt'));
+                if (data.pay_amt?.value !== undefined) {
+                    assert.equal(parsed.gmv_amount_yuan, data.pay_amt.value / 100);
+                    assert.ok(parsed.gmv_amount_yuan > 0);
+                }
+                if (findItem('current_cnt')) {
+                    assert.equal(parsed.online_viewers_count, metricValue('current_cnt'));
+                    assert.ok(parsed.online_viewers_count > 0);
+                }
+                if (findItem('stat_cost')) {
+                    assert.equal(parsed.ad_cost_yuan, Number((metricValue('stat_cost') / 100).toFixed(2)));
+                }
+                if (findItem('pay_ucnt')) {
+                    assert.equal(parsed.pay_users_count, metricValue('pay_ucnt'));
+                }
+                if (findItem('gpm')) {
+                    assert.equal(parsed.gpm_amount_yuan, Number((metricValue('gpm') / 100).toFixed(2)));
+                }
+                if (findItem('watch_pay_ucnt_ratio')) {
+                    assert.equal(parsed.watch_pay_ucnt_ratio, Number(metricValue('watch_pay_ucnt_ratio').toFixed(6)));
+                }
+                if (findItem('old_fans_pay_ucnt_ratio')) {
+                    assert.equal(parsed.old_fans_pay_ucnt_ratio, Number(metricValue('old_fans_pay_ucnt_ratio').toFixed(6)));
+                }
+                if (findItem('interact_watch_ucnt_ratio')) {
+                    assert.equal(parsed.interact_watch_ucnt_ratio, Number(metricValue('interact_watch_ucnt_ratio').toFixed(6)));
+                }
+                if (findItem('follow_anchor_watch_ucnt_ratio')) {
+                    assert.equal(parsed.follow_anchor_watch_ucnt_ratio, Number(metricValue('follow_anchor_watch_ucnt_ratio').toFixed(6)));
+                }
+                if (findItem('real_refund_amt_ratio')) {
+                    assert.equal(parsed.real_refund_amt_ratio, Number(metricValue('real_refund_amt_ratio').toFixed(6)));
+                }
             } else {
                 const parsed = CompassParser.parseProductExplainDetail(request.url, json, context);
                 assert.equal(parsed.roomId, roomId);
