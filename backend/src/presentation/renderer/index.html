@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>抖音直播多房间转化效能并排监控 (GPM & 观看-成交率)</title>
+    <title>抖音直播多房间转化效能并排监控 (山势面积图)</title>
     <style>
         :root {
             --bg-color: #0b0f19;
@@ -83,29 +83,11 @@
             100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
         }
 
+        /* 最右上角：时间段切换 */
         .top-controls {
             display: flex;
             align-items: center;
-            gap: 20px;
-        }
-
-        .chart-legends {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-            font-size: 12px;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-
-        .legend-line {
-            width: 14px;
-            height: 3px;
-            border-radius: 2px;
+            gap: 12px;
         }
 
         .granularity-selector {
@@ -149,7 +131,6 @@
             width: 100%;
         }
 
-        /* 并排多房间网格容器 (动态根据数量并排) */
         .rooms-grid {
             display: grid;
             gap: 16px;
@@ -224,7 +205,6 @@
             border: 1px solid rgba(239, 68, 68, 0.3);
         }
 
-        /* 重点 KPI 卡片 (无文字注解) */
         .kpi-row {
             display: grid;
             grid-template-columns: 1fr 1fr;
@@ -258,11 +238,54 @@
         .kpi-value.gpm { color: var(--gpm-color); }
         .kpi-value.ratio { color: var(--ratio-color); }
 
+        /* 图表栏头部：右上角可选指标切换 */
+        .chart-header-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .chart-tag-label {
+            font-size: 11px;
+            color: #9ca3af;
+            font-weight: 500;
+        }
+
+        .metric-toggles {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toggle-chip {
+            background: rgba(255, 255, 255, 0.04);
+            color: #6b7280;
+            border: 1px solid transparent;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .toggle-chip.active-gpm {
+            background: rgba(245, 158, 11, 0.2);
+            color: #f59e0b;
+            border-color: rgba(245, 158, 11, 0.5);
+        }
+
+        .toggle-chip.active-ratio {
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            border-color: rgba(16, 185, 129, 0.5);
+        }
+
         .chart-box {
             position: relative;
             width: 100%;
             height: 320px;
-            background: rgba(0, 0, 0, 0.2);
+            background: rgba(0, 0, 0, 0.25);
             border-radius: 8px;
             border: 1px solid rgba(255, 255, 255, 0.04);
             padding: 4px;
@@ -311,22 +334,11 @@
                 <span class="pulse-dot"></span>
                 <span id="activeCountLabel">同屏实时监控中</span>
             </span>
-            <h1>多直播间转化效能并排监控</h1>
+            <h1>多直播间转化山势图监控</h1>
         </div>
 
         <div class="top-controls">
-            <div class="chart-legends">
-                <div class="legend-item">
-                    <span class="legend-line" style="background:var(--gpm-color);"></span>
-                    <span style="color:#f59e0b;font-weight:600;">GPM (左轴 / 元)</span>
-                </div>
-                <div class="legend-item">
-                    <span class="legend-line" style="background:var(--ratio-color);"></span>
-                    <span style="color:#10b981;font-weight:600;">观看-成交率 (右轴 / %)</span>
-                </div>
-            </div>
-
-            <!-- 全局颗粒度选择器 -->
+            <!-- 最右上角：时间段切换 -->
             <div class="granularity-selector">
                 <button class="gran-btn" data-range="5" onclick="setGranularity(5, this)">5M</button>
                 <button class="gran-btn" data-range="15" onclick="setGranularity(15, this)">15M</button>
@@ -337,9 +349,9 @@
     </header>
 
     <main class="container">
-        <!-- 并排房间容器 -->
+        <!-- 并排房间网格 -->
         <div class="rooms-grid cols-3" id="roomsGrid">
-            <!-- 动态渲染各房间卡片 -->
+            <!-- 动态卡片 -->
         </div>
 
         <div class="empty-view" id="emptyView" style="display:none;">
@@ -352,6 +364,8 @@
     <script>
         let currentRooms = [];
         let selectedRangeMinutes = 30; // 默认 30M
+        const roomMetricStates = {}; // roomId -> { showGpm: true, showRatio: true }
+
         const gridElement = document.getElementById('roomsGrid');
         const emptyElement = document.getElementById('emptyView');
 
@@ -365,6 +379,25 @@
             buttons.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             renderAllRooms();
+        }
+
+        function toggleMetric(roomId, metricType) {
+            if (!roomMetricStates[roomId]) {
+                roomMetricStates[roomId] = { showGpm: true, showRatio: true };
+            }
+            const state = roomMetricStates[roomId];
+            if (metricType === 'gpm') {
+                if (state.showGpm && !state.showRatio) return;
+                state.showGpm = !state.showGpm;
+                const btn = document.getElementById(`toggle-gpm-${roomId}`);
+                if (btn) btn.className = `toggle-chip ${state.showGpm ? 'active-gpm' : ''}`;
+            } else if (metricType === 'ratio') {
+                if (state.showRatio && !state.showGpm) return;
+                state.showRatio = !state.showRatio;
+                const btn = document.getElementById(`toggle-ratio-${roomId}`);
+                if (btn) btn.className = `toggle-chip ${state.showRatio ? 'active-ratio' : ''}`;
+            }
+            drawRoomMountainChart(roomId);
         }
 
         function applyGridClass(count) {
@@ -386,15 +419,18 @@
 
             emptyElement.style.display = 'none';
             gridElement.style.display = 'grid';
-            document.getElementById('activeCountLabel').textContent = `${currentRooms.length} 房间同屏实时监控中`;
+            document.getElementById('activeCountLabel').textContent = `${currentRooms.length} 房间同屏山势图监控中`;
 
             applyGridClass(currentRooms.length);
             renderAllRooms();
         }
 
         function renderAllRooms() {
-            // 保留或生成卡片骨架
-            currentRooms.forEach((room, idx) => {
+            currentRooms.forEach((room) => {
+                if (!roomMetricStates[room.roomId]) {
+                    roomMetricStates[room.roomId] = { showGpm: true, showRatio: true };
+                }
+
                 let card = document.getElementById(`card-${room.roomId}`);
                 if (!card) {
                     card = document.createElement('div');
@@ -420,6 +456,14 @@
                                 <div class="kpi-value ratio" id="ratio-${room.roomId}">0.00%</div>
                             </div>
                         </div>
+                        <!-- 右上角可选指标切换 -->
+                        <div class="chart-header-bar">
+                            <span class="chart-tag-label">山势面积图</span>
+                            <div class="metric-toggles">
+                                <button class="toggle-chip active-gpm" id="toggle-gpm-${room.roomId}" onclick="toggleMetric('${room.roomId}', 'gpm')">● GPM</button>
+                                <button class="toggle-chip active-ratio" id="toggle-ratio-${room.roomId}" onclick="toggleMetric('${room.roomId}', 'ratio')">● 成交率</button>
+                            </div>
+                        </div>
                         <div class="chart-box">
                             <canvas class="room-canvas" id="canvas-${room.roomId}"></canvas>
                             <div class="chart-tooltip" id="tooltip-${room.roomId}"></div>
@@ -429,7 +473,6 @@
                     bindCanvasHover(room.roomId);
                 }
 
-                // 更新数值
                 const m = room.latestMetrics || {};
                 document.getElementById(`name-${room.roomId}`).textContent = room.shopName || room.roomId;
                 document.getElementById(`gpm-${room.roomId}`).textContent = formatCurrency(m.gpm_amount_yuan);
@@ -439,25 +482,23 @@
                 statusEl.className = `status-badge ${room.isOnline ? 'online' : 'offline'}`;
                 statusEl.textContent = room.liveStatusText || (room.isOnline ? '正在直播' : '离线');
 
-                // 绘制该房间图表
-                drawRoomChart(room.roomId);
+                drawRoomMountainChart(room.roomId);
             });
 
-            // 移除已关闭的房间 DOM
             const activeIds = new Set(currentRooms.map(r => `card-${r.roomId}`));
             Array.from(gridElement.children).forEach(child => {
-                if (!activeIds.has(child.id)) {
-                    child.remove();
-                }
+                if (!activeIds.has(child.id)) child.remove();
             });
         }
 
-        function drawRoomChart(roomId, hoverX = null) {
+        function drawRoomMountainChart(roomId, hoverX = null) {
             const canvas = document.getElementById(`canvas-${roomId}`);
             if (!canvas) return;
             const tooltip = document.getElementById(`tooltip-${roomId}`);
             const room = currentRooms.find(r => r.roomId === roomId);
             if (!room) return;
+
+            const state = roomMetricStates[roomId] || { showGpm: true, showRatio: true };
 
             const rect = canvas.getBoundingClientRect();
             if (canvas.width !== rect.width * window.devicePixelRatio) {
@@ -487,7 +528,7 @@
                 points = room.metricHistory.slice(-Math.min(room.metricHistory.length, selectedRangeMinutes * 4));
             }
 
-            const padding = { top: 20, right: 45, bottom: 26, left: 45 };
+            const padding = { top: 22, right: 48, bottom: 26, left: 48 };
             const chartW = w - padding.left - padding.right;
             const chartH = h - padding.top - padding.bottom;
 
@@ -500,7 +541,6 @@
             const minRatio = Math.max(0, Number((Math.min(...ratioValues) * 0.85).toFixed(1)));
             const maxRatio = Math.max(minRatio + 1, Number((Math.max(...ratioValues) * 1.15).toFixed(1)));
 
-            // 绘制网格与刻度
             ctx.lineWidth = 1;
             ctx.font = '10px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto';
             const ySteps = 4;
@@ -514,20 +554,21 @@
                 ctx.lineTo(padding.left + chartW, y);
                 ctx.stroke();
 
-                // 左 Y 轴 (GPM)
-                const gVal = Math.round(maxGpm - ((maxGpm - minGpm) / ySteps) * i);
-                ctx.fillStyle = '#f59e0b';
-                ctx.textAlign = 'right';
-                ctx.fillText('¥' + gVal, padding.left - 6, y + 3);
+                if (state.showGpm) {
+                    const gVal = Math.round(maxGpm - ((maxGpm - minGpm) / ySteps) * i);
+                    ctx.fillStyle = '#f59e0b';
+                    ctx.textAlign = 'right';
+                    ctx.fillText('¥' + gVal, padding.left - 6, y + 3);
+                }
 
-                // 右 Y 轴 (Ratio)
-                const rVal = (maxRatio - ((maxRatio - minRatio) / ySteps) * i).toFixed(1);
-                ctx.fillStyle = '#10b981';
-                ctx.textAlign = 'left';
-                ctx.fillText(rVal + '%', padding.left + chartW + 6, y + 3);
+                if (state.showRatio) {
+                    const rVal = (maxRatio - ((maxRatio - minRatio) / ySteps) * i).toFixed(1);
+                    ctx.fillStyle = '#10b981';
+                    ctx.textAlign = 'left';
+                    ctx.fillText(rVal + '%', padding.left + chartW + 6, y + 3);
+                }
             }
 
-            // X 轴时间
             ctx.textAlign = 'center';
             ctx.fillStyle = '#9ca3af';
             const xStepCount = Math.min(5, points.length);
@@ -546,11 +587,14 @@
                 return { x, yGpm, yRatio, data: p };
             });
 
-            // 绘制双曲线
-            drawSeries(ctx, coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.08)', h);
-            drawSeries(ctx, coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.08)', h);
+            // 绘制山势面积图 (Area Mountain Fill)
+            if (state.showGpm) {
+                drawMountainArea(ctx, coords, 'yGpm', '#f59e0b', 'rgba(245, 158, 11, 0.35)', 'rgba(245, 158, 11, 0.0)', h, padding.top);
+            }
+            if (state.showRatio) {
+                drawMountainArea(ctx, coords, 'yRatio', '#10b981', 'rgba(16, 185, 129, 0.35)', 'rgba(16, 185, 129, 0.0)', h, padding.top);
+            }
 
-            // 悬浮指示
             if (hoverX !== null) {
                 let nearest = coords[0];
                 let minDist = Math.abs(hoverX - coords[0].x);
@@ -570,25 +614,35 @@
                 ctx.stroke();
                 ctx.setLineDash([]);
 
-                drawPoint(ctx, nearest.x, nearest.yGpm, '#f59e0b');
-                drawPoint(ctx, nearest.x, nearest.yRatio, '#10b981');
+                if (state.showGpm) drawPoint(ctx, nearest.x, nearest.yGpm, '#f59e0b');
+                if (state.showRatio) drawPoint(ctx, nearest.x, nearest.yRatio, '#10b981');
+
+                let tooltipHtml = `<div style="color:#9ca3af;font-size:10px;font-family:monospace;margin-bottom:2px;">${nearest.data.timeDisplay || ''}</div>`;
+                if (state.showGpm) {
+                    tooltipHtml += `<div style="color:#f59e0b;font-weight:600;">GPM: ¥${Number(nearest.data.gpm_amount_yuan).toFixed(2)}</div>`;
+                }
+                if (state.showRatio) {
+                    tooltipHtml += `<div style="color:#10b981;font-weight:600;">成交率: ${Number(nearest.data.watch_to_pay_ratio_percent).toFixed(2)}%</div>`;
+                }
 
                 tooltip.style.display = 'block';
                 tooltip.style.left = `${Math.min(nearest.x + 10, w - 120)}px`;
-                tooltip.style.top = `${Math.min(nearest.yGpm, nearest.yRatio)}px`;
-                tooltip.innerHTML = `
-                    <div style="color:#9ca3af;font-size:10px;font-family:monospace;">${nearest.data.timeDisplay || ''}</div>
-                    <div style="color:#f59e0b;font-weight:600;">GPM: ¥${Number(nearest.data.gpm_amount_yuan).toFixed(2)}</div>
-                    <div style="color:#10b981;font-weight:600;">成交率: ${Number(nearest.data.watch_to_pay_ratio_percent).toFixed(2)}%</div>
-                `;
+                const topY = Math.min(state.showGpm ? nearest.yGpm : 999, state.showRatio ? nearest.yRatio : 999);
+                tooltip.style.top = `${Math.max(10, topY)}px`;
+                tooltip.innerHTML = tooltipHtml;
             } else {
                 tooltip.style.display = 'none';
             }
         }
 
-        function drawSeries(ctx, coords, key, strokeColor, fillColor, canvasH) {
+        function drawMountainArea(ctx, coords, key, strokeColor, gradTop, gradBottom, canvasH, topLimit) {
+            const bottomY = canvasH - 26;
+            const gradient = ctx.createLinearGradient(0, topLimit, 0, bottomY);
+            gradient.addColorStop(0, gradTop);
+            gradient.addColorStop(1, gradBottom);
+
             ctx.beginPath();
-            ctx.moveTo(coords[0].x, canvasH - 26);
+            ctx.moveTo(coords[0].x, bottomY);
             coords.forEach((c, i) => {
                 if (i === 0) ctx.lineTo(c.x, c[key]);
                 else {
@@ -597,9 +651,9 @@
                     ctx.bezierCurveTo(cx, prev[key], cx, c[key], c.x, c[key]);
                 }
             });
-            ctx.lineTo(coords[coords.length - 1].x, canvasH - 26);
+            ctx.lineTo(coords[coords.length - 1].x, bottomY);
             ctx.closePath();
-            ctx.fillStyle = fillColor;
+            ctx.fillStyle = gradient;
             ctx.fill();
 
             ctx.beginPath();
@@ -612,17 +666,17 @@
                 }
             });
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 2.2;
             ctx.stroke();
         }
 
         function drawPoint(ctx, x, y, color) {
             ctx.beginPath();
-            ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+            ctx.arc(x, y, 4, 0, Math.PI * 2);
             ctx.fillStyle = color;
             ctx.fill();
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1.2;
+            ctx.lineWidth = 1.4;
             ctx.stroke();
         }
 
@@ -631,10 +685,10 @@
             if (!canvas) return;
             canvas.addEventListener('mousemove', (e) => {
                 const rect = canvas.getBoundingClientRect();
-                drawRoomChart(roomId, e.clientX - rect.left);
+                drawRoomMountainChart(roomId, e.clientX - rect.left);
             });
             canvas.addEventListener('mouseleave', () => {
-                drawRoomChart(roomId, null);
+                drawRoomMountainChart(roomId, null);
             });
         }
 
@@ -655,7 +709,7 @@
         }
 
         window.addEventListener('resize', () => {
-            currentRooms.forEach(r => drawRoomChart(r.roomId));
+            currentRooms.forEach(r => drawRoomMountainChart(r.roomId));
         });
 
         window.addEventListener('DOMContentLoaded', () => {
