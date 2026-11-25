@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.5.0
+// @version      1.6.1
 // @description  实时监听拦截抖音电商罗盘大屏数据（基础信息、核心指标、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/live/shop*
@@ -39,7 +39,7 @@
     // 1. 系统配置与运行时状态
     // =========================================================================
     const CONFIG = {
-        version: '1.5.0',
+        version: '1.6.1',
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
         heartbeatIntervalMs: 3000,
         retryDelayMs: 1000,
@@ -259,6 +259,13 @@
                 return;
             }
 
+            const responseCode = Number(json?.st ?? json?.code ?? 0);
+            if (Number.isFinite(responseCode) && responseCode !== 0) {
+                observation.status = 'apiError';
+                observation.responseCode = responseCode;
+                return;
+            }
+
             const parsedPayload = json && typeof json === 'object' ? route.parse(json) : null;
             if (!parsedPayload) return;
 
@@ -407,40 +414,6 @@
         const { addEventListener, removeEventListener } = eventPrototype;
         const observers = new WeakMap();
 
-        const requiredCoreMetrics = [
-            'gpm',
-            'watch_pay_ucnt_ratio',
-            'avg_watch_duration',
-            'stat_cost',
-            'old_fans_pay_ucnt_ratio',
-            'interact_watch_ucnt_ratio',
-            'follow_anchor_watch_ucnt_ratio',
-            'real_refund_amt_ratio'
-        ];
-
-        function enhanceCoreDataUrl(value) {
-            if (!value || typeof value !== 'string') return value;
-            if (!value.includes('/live_screen/core_data')) return value;
-            try {
-                const url = new URL(value, pageWindow.location.href);
-                const current = (url.searchParams.get('index_selected') || '').split(',').filter(Boolean);
-                let changed = false;
-                for (const m of requiredCoreMetrics) {
-                    if (!current.includes(m)) {
-                        current.push(m);
-                        changed = true;
-                    }
-                }
-                if (changed) {
-                    url.searchParams.set('index_selected', current.join(','));
-                    return url.href;
-                }
-            } catch {
-                // 原样返回
-            }
-            return value;
-        }
-
         function targetUrl(value) {
             if (!value) return '';
             try {
@@ -518,11 +491,10 @@
         }
 
         xhrPrototype.open = function (method, url, ...args) {
-            const finalUrl = enhanceCoreDataUrl(url);
-            const result = open.apply(this, [method, finalUrl, ...args]);
+            const result = open.apply(this, [method, url, ...args]);
             observers.get(this)?.();
             // 在页面注册后续回调前开始监听，防止响应被同步清空。
-            if (canCapture()) observeXhr(this, targetUrl(finalUrl));
+            if (canCapture()) observeXhr(this, targetUrl(url));
             return result;
         };
 
@@ -540,9 +512,6 @@
         if (typeof originalFetch === 'function') {
             pageWindow.fetch = async function (...args) {
                 const capture = canCapture();
-                if (args[0] && typeof args[0] === 'string') {
-                    args[0] = enhanceCoreDataUrl(args[0]);
-                }
                 const response = await originalFetch.apply(this, args);
                 if (!capture || !canCapture()) return response;
                 const input = args[0];
@@ -617,11 +586,137 @@
     startNetworkCapture();
 
     // =========================================================================
-    // 7. 页面浮动状态指示栏 (HUD)
+    // 7. 使用罗盘原生配置应用八项指标
+    // =========================================================================
+    const compassPreset = [
+        { label: '千次观看用户支付金额', field: 'gpm_amount_yuan' },
+        { label: '观看-成交率(人数)', field: 'watch_pay_ucnt_ratio' },
+        { label: '人均观看时长', field: 'avg_watch_duration_seconds' },
+        { label: '投放消耗(店铺绑定)', field: 'ad_cost_yuan' },
+        { label: '成交老粉占比', field: 'old_fans_pay_ucnt_ratio' },
+        { label: '观看-互动率(人数)', field: 'interact_watch_ucnt_ratio' },
+        { label: '观看-关注率(人数)', field: 'follow_anchor_watch_ucnt_ratio' },
+        { label: '退款金额占比', field: 'real_refund_amt_ratio' }
+    ];
+    const preservedMetricPriority = new Map([
+        ['实时在线人数', 4], ['直播间用户支付金额', 3], ['成交人数', 2], ['成交件数', 1]
+    ]);
+    const minMetricCount = 6;
+    const maxMetricCount = 12;
+    const presetLabels = new Set(compassPreset.map(metric => metric.label));
+    let presetState = 'idle';
+    let presetMessage = '等待开始';
+
+    function setPresetStatus(status, message) {
+        presetState = status;
+        presetMessage = message;
+        updateHud();
+    }
+
+    function findMetricDialog() {
+        return [...document.querySelectorAll('[class*="checkboxModalWrap"]')]
+            .find(dialog => dialog.getClientRects().length > 0);
+    }
+
+    function readMetricOptions(dialog) {
+        return [...dialog.querySelectorAll('input[type="checkbox"]')]
+            .map(input => ({ input, label: input.closest('label')?.textContent.trim() }));
+    }
+
+    function findDialogButton(dialog, label) {
+        return [...dialog.querySelectorAll('button')].find(button => button.textContent.trim() === label);
+    }
+
+    async function waitForPreset(check, timeoutMs, message) {
+        const stepMs = 80;
+        for (let elapsed = 0; elapsed <= timeoutMs; elapsed += stepMs) {
+            if (!isActiveLivePage()) throw new Error('房间已切换');
+            const result = check();
+            if (result) return result;
+            await new Promise(resolve => setTimeout(resolve, stepMs));
+        }
+        throw new Error(message);
+    }
+
+    async function applyCompassPreset() {
+        if (!isActiveLivePage() || presetState === 'configuring' || presetState === 'waiting') return;
+        setPresetStatus('configuring', '正在选择罗盘指标');
+
+        let dialog = findMetricDialog();
+        const openedBySentinel = !dialog;
+        try {
+            if (openedBySentinel) {
+                const gear = await waitForPreset(
+                    () => document.querySelector('[class*="topBtn--"] > [class*="config--"]'),
+                    2400, '找不到罗盘核心指标设置'
+                );
+                gear.click();
+                dialog = await waitForPreset(findMetricDialog, 2400, '罗盘指标配置未打开');
+            }
+
+            const option = label => readMetricOptions(dialog).find(item => item.label === label)?.input;
+            const selectedOptions = () => readMetricOptions(dialog).filter(item => item.input.checked);
+            const checkSelectedCount = (selected) => {
+                if (selected.length < minMetricCount || selected.length > maxMetricCount) {
+                    throw new Error('罗盘选中项须保持在 6 至 12 项');
+                }
+            };
+            checkSelectedCount(selectedOptions());
+            if (compassPreset.some(metric => !option(metric.label))) throw new Error('当前罗盘缺少预设指标');
+            const missing = compassPreset.filter(metric => !option(metric.label).checked);
+
+            for (const { label } of missing) {
+                if (!isActiveLivePage()) throw new Error('房间已切换');
+                const selected = selectedOptions();
+                checkSelectedCount(selected);
+                if (option(label).disabled || selected.length === maxMetricCount) {
+                    if (selected.length === minMetricCount) throw new Error('当前仅选中 6 项，所需指标暂不可选');
+                    const replaceable = selected
+                        .filter(item => !item.input.disabled && item.label && !presetLabels.has(item.label))
+                        .sort((a, b) => (preservedMetricPriority.get(a.label) ?? 0) - (preservedMetricPriority.get(b.label) ?? 0));
+                    const removed = replaceable[0];
+                    if (!removed) throw new Error('罗盘没有可替换的指标位置');
+                    removed.input.click();
+                    await waitForPreset(() => option(removed.label)?.checked === false && option(label)?.disabled === false,
+                        1200, '罗盘未释放指标位置');
+                }
+                option(label).click();
+                await waitForPreset(() => option(label)?.checked, 1200, '罗盘未勾选指标');
+            }
+
+            if (!isActiveLivePage()) throw new Error('房间已切换');
+            checkSelectedCount(selectedOptions());
+            if (compassPreset.some(metric => !option(metric.label)?.checked)) throw new Error('罗盘八项指标未选齐');
+            const action = findDialogButton(dialog, missing.length || !openedBySentinel ? '确认' : '取消');
+            if (!action || action.disabled) throw new Error('罗盘指标配置暂时无法提交');
+
+            const previousResponse = state.latestResponses.get('coreData');
+            setPresetStatus('waiting', '已选八项，等待罗盘返回');
+            action.click();
+            await waitForPreset(() => !findMetricDialog(), 2400, '罗盘指标配置未关闭');
+            dialog = null;
+
+            await waitForPreset(() => {
+                const response = state.latestResponses.get('coreData');
+                return response && response !== previousResponse && response.status === 'parsed' &&
+                    compassPreset.every(metric => Number.isFinite(response.payload?.[metric.field]));
+            }, 16000, '等待八项指标超时，可重新配置');
+            setPresetStatus('ready', '已收到八项指标');
+        } catch (error) {
+            if (openedBySentinel && dialog && isActiveLivePage() && findMetricDialog() === dialog) {
+                findDialogButton(dialog, '取消')?.click();
+            }
+            setPresetStatus('error', sanitizeText(error.message) || '罗盘指标配置失败');
+        }
+    }
+
+    // =========================================================================
+    // 8. 罗盘控制面板
     // =========================================================================
     const captureStatus = {
         parsed: '已解析',
         empty: '无可用数据',
+        apiError: '接口返回错误',
         readError: '响应读取失败',
         invalidJson: '响应不是有效 JSON',
         parseError: '解析失败'
@@ -702,6 +797,33 @@
                     font-size: 11px;
                 }
                 .room { margin: 7px 0 0; color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+                .preset {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 10px;
+                    margin: 0 16px 13px;
+                    padding: 9px 10px;
+                    border: 1px solid var(--line);
+                    border-radius: 7px;
+                    background: #0d1d24;
+                }
+                .preset strong { display: block; font-size: 12px; }
+                .preset-status { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+                .preset-status[data-state="ready"] { color: var(--mint); }
+                .preset-status[data-state="error"] { color: #edbf84; }
+                .start {
+                    flex: none;
+                    padding: 6px 10px;
+                    border: 1px solid transparent;
+                    border-radius: 5px;
+                    background: var(--mint);
+                    color: #0e2625;
+                    font-weight: 700;
+                    font-size: 12px;
+                }
+                .start:hover:not(:disabled) { background: #a1efcf; }
+                .start:disabled { opacity: .62; cursor: wait; }
                 .counters {
                     display: grid;
                     grid-template-columns: repeat(3, 1fr);
@@ -747,12 +869,19 @@
             <section class="panel" id="douyin-sentinel-panel" aria-labelledby="douyin-sentinel-title" hidden>
                 <header class="panel-head">
                     <div class="head-line">
-                        <h2 id="douyin-sentinel-title">罗盘采集</h2>
+                        <h2 id="douyin-sentinel-title">罗盘控制面板</h2>
                         <span class="connection" id="douyin-sentinel-connection"></span>
                         <button class="settings" id="douyin-sentinel-settings" type="button">总控设置</button>
                     </div>
                     <p class="room" id="douyin-sentinel-room"></p>
                 </header>
+                <div class="preset">
+                    <div>
+                        <strong>核心指标预设</strong>
+                        <span class="preset-status" id="douyin-sentinel-preset-status" role="status">等待开始</span>
+                    </div>
+                    <button class="start" id="douyin-sentinel-start" type="button">开始采集</button>
+                </div>
                 <dl class="counters">
                     <div><dt>监听响应</dt><dd id="douyin-sentinel-response-count">0</dd></div>
                     <div><dt>成功解析</dt><dd id="douyin-sentinel-captured-count">0</dd></div>
@@ -779,6 +908,8 @@
             toggleStatus: find('toggle-status'),
             connection: find('connection'),
             room: find('room'),
+            start: find('start'),
+            presetStatus: find('preset-status'),
             responseCount: find('response-count'),
             capturedCount: find('captured-count'),
             sentCount: find('sent-count'),
@@ -794,6 +925,7 @@
         }
 
         hud.toggle.addEventListener('click', () => setExpanded(hud.panel.hidden));
+        hud.start.addEventListener('click', applyCompassPreset);
         root.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && !hud.panel.hidden) {
                 event.stopPropagation();
@@ -868,7 +1000,7 @@
         row.element.dataset.status = observation.status;
         const channel = observation.channel === 'fetch' ? 'Fetch' : 'XHR';
         row.meta.textContent = `${panelTime.format(observation.observedAt)}  ${channel}`;
-        row.status.textContent = captureStatus[observation.status];
+        row.status.textContent = [captureStatus[observation.status], observation.responseCode].filter(Boolean).join(' ');
         row.summary.hidden = !observation.payload;
         row.summary.textContent = observation.payload ? sanitizeText(describePayload(observation.payload)) : '';
         row.parsed.hidden = !observation.payload;
@@ -888,6 +1020,12 @@
 
         hud.connection.textContent = state.connected ? '总控已连接' : '等待总控连接';
         hud.connection.dataset.connected = String(state.connected);
+        hud.start.disabled = presetState === 'configuring' || presetState === 'waiting';
+        hud.start.textContent = presetState === 'ready' ? '重新配置' : '开始采集';
+        if (hud.presetStatus.dataset.state !== presetState || hud.presetStatus.textContent !== presetMessage) {
+            hud.presetStatus.dataset.state = presetState;
+            hud.presetStatus.textContent = presetMessage;
+        }
         const room = `房间 ${roomId}`;
         hud.room.textContent = sanitizeText([state.shopName, room].filter(Boolean).join('  '));
         hud.responseCount.textContent = String(state.responseCount);

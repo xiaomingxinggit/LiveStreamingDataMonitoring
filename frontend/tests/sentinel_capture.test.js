@@ -12,6 +12,8 @@ const compassOrigin = 'https://compass.jinritemai.com';
 const shopScreenUrl = `${compassOrigin}/screen/live/shop`;
 const pageUrl = `${shopScreenUrl}?live_room_id=${roomId}`;
 const metricsUrl = new URL(`/compass_api/shop/live/live_screen/core_data?room_id=${roomId}`, pageUrl).href;
+const signedMetricsUrl = `${metricsUrl}&index_selected=stat_cost%2ccurrent_cnt&version=qc` +
+    '&msToken=example%20token~&a_bogus=example%2bsignature%3d';
 
 function metricsResponse(gmvCents = 12345) {
     return JSON.stringify({
@@ -30,6 +32,7 @@ class TestElement extends EventTarget {
     dataset = {};
     attributes = new Map();
     hidden = false;
+    disabled = false;
     #text = '';
 
     constructor(tagName = '') {
@@ -89,6 +92,8 @@ class TestElement extends EventTarget {
         if (name === 'id') this.id = value;
         if (name === 'class') this.className = value;
         if (name === 'hidden') this.hidden = true;
+        if (name === 'disabled') this.disabled = true;
+        if (name === 'data-state') this.dataset.state = value;
     }
 
     getAttribute(name) {
@@ -120,7 +125,8 @@ function startSentinel({
     inlineScript = true,
     unsafeWindowAvailable = false,
     topLevel = true,
-    pageFetch
+    pageFetch,
+    nativePicker
 } = {}) {
     const intervals = new Map();
     const timeouts = new Map();
@@ -221,7 +227,11 @@ function startSentinel({
                 }
             }
         },
-        getElementById: id => body.querySelector(`#${id}`)
+        getElementById: id => body.querySelector(`#${id}`),
+        querySelectorAll: selector => nativePicker?.querySelectorAll(selector) ?? [],
+        querySelector(selector) {
+            return this.querySelectorAll(selector)[0] ?? null;
+        }
     };
 
     script.runInNewContext({
@@ -306,8 +316,8 @@ function startSentinel({
             xhr.send();
             deliverPageMessages();
         },
-        async fetchTarget() {
-            const response = await pageWindow.fetch(metricsUrl);
+        async fetchTarget(requestUrl = metricsUrl) {
+            const response = await pageWindow.fetch(requestUrl);
             deliverPageMessages();
             return response;
         },
@@ -327,6 +337,106 @@ function startSentinel({
             now = end;
         }
     };
+}
+
+const presetMetrics = [
+    ['gpm', '千次观看用户支付金额', 182345],
+    ['watch_pay_ucnt_ratio', '观看-成交率(人数)', 0.0582],
+    ['avg_watch_duration', '人均观看时长', 53],
+    ['stat_cost', '投放消耗(店铺绑定)', 237600],
+    ['old_fans_pay_ucnt_ratio', '成交老粉占比', 0.0625],
+    ['interact_watch_ucnt_ratio', '观看-互动率(人数)', 0.03125],
+    ['follow_anchor_watch_ucnt_ratio', '观看-关注率(人数)', 0.0075],
+    ['real_refund_amt_ratio', '退款金额占比', 0.095]
+];
+
+function presetMetricsResponse() {
+    const coreData = presetMetrics.map(([index_name,, value]) => ({ index_name, value: { value } }));
+    return JSON.stringify({ st: 0, data: { core_data: coreData } });
+}
+
+function createNativePicker({ initialSelection, missingMetric, maximumSelection = 8, alreadyOpen = false } = {}) {
+    const targetLabels = presetMetrics.map(([, label]) => label);
+    const otherLabels = [
+        '成交金额', '在线人数', '成交人数', '商品点击率',
+        '实时在线人数', '直播间用户支付金额', '成交件数', '直播间曝光人数'
+    ];
+    const minimumSelection = 6;
+    let selected = new Set(initialSelection ?? [
+        ...targetLabels.slice(0, 4), ...otherLabels.slice(0, maximumSelection - 4)
+    ]);
+    let draft = new Set(selected);
+    let modalOpen = alreadyOpen;
+    const actions = [];
+
+    function control(textContent, click) {
+        return { textContent, disabled: false, click };
+    }
+
+    const checkboxes = [...targetLabels, ...otherLabels].filter(label => label !== missingMetric).map(label => {
+        function isDisabled() {
+            return draft.has(label) ? draft.size <= minimumSelection : draft.size >= maximumSelection;
+        }
+
+        const wrapper = control(label, () => {
+            if (isDisabled()) {
+                actions.push(['blocked', label, draft.size]);
+            } else if (draft.delete(label)) {
+                actions.push(['uncheck', label, draft.size]);
+            } else {
+                draft.add(label);
+                actions.push(['check', label, draft.size]);
+            }
+        });
+        return {
+            get checked() { return draft.has(label); },
+            get disabled() { return isDisabled(); },
+            closest: () => wrapper,
+            click: wrapper.click
+        };
+    });
+
+    const cancel = control('取消', () => {
+        actions.push(['cancel']);
+        modalOpen = false;
+        draft = new Set(selected);
+    });
+    const confirm = control('确认', () => {
+        actions.push(['confirm']);
+        selected = new Set(draft);
+        modalOpen = false;
+    });
+    const trigger = control('', () => {
+        actions.push(['open']);
+        modalOpen = true;
+    });
+    const otherTrigger = control('', () => actions.push(['other']));
+    const modal = {
+        getClientRects: () => [{ width: 100, height: 25 }],
+        querySelectorAll(selector) {
+            if (selector === 'input[type="checkbox"]') return checkboxes;
+            if (selector === 'button') return [cancel, confirm];
+            return [];
+        }
+    };
+
+    return {
+        actions,
+        get selected() { return [...selected]; },
+        querySelectorAll(selector) {
+            if (selector === '[class*="topBtn--"] > [class*="config--"]') return [trigger, otherTrigger];
+            if (selector === '[class*="checkboxModalWrap"]' && modalOpen) return [modal];
+            return [];
+        }
+    };
+}
+
+async function waitForPreset(sentinel, condition) {
+    for (let attempt = 0; attempt < 35 && !condition(); attempt++) {
+        sentinel.advanceTime(80);
+        await new Promise(setImmediate);
+    }
+    assert.ok(condition(), 'The native metric selection did not reach the expected state');
 }
 
 test('the sentinel leaves pages outside the Compass shop screen scope untouched', () => {
@@ -458,6 +568,127 @@ test('the capture panel opens and shows an empty state before observing an API r
     assert.match(sentinel.element('empty').textContent, /等待罗盘页面返回目标接口数据/);
 });
 
+test('the capture panel exposes a Start button', () => {
+    const sentinel = startSentinel();
+    sentinel.openPanel();
+    const start = sentinel.element('start');
+    assert.equal(start.tagName, 'button');
+    assert.equal(start.getAttribute('type'), 'button');
+    assert.match(start.textContent, /开始/);
+});
+
+test('Start makes room for missing metrics at twelve selections and captures the next response', async () => {
+    const nativePicker = createNativePicker({ maximumSelection: 12 });
+    const sentinel = startSentinel({ nativePicker });
+    const initialSelection = nativePicker.selected;
+    sentinel.openPanel();
+    assert.deepEqual(nativePicker.actions, []);
+    assert.deepEqual(nativePicker.selected, initialSelection);
+    assert.equal(sentinel.element('preset-status').dataset.state, 'idle');
+
+    sentinel.capture(presetMetricsResponse());
+    assert.equal(sentinel.eventRequests.length, 1);
+    sentinel.eventRequests[0].reply();
+    assert.equal(sentinel.element('preset-status').dataset.state, 'idle');
+
+    sentinel.element('start').dispatchEvent(new Event('click'));
+    await waitForPreset(sentinel, () => sentinel.element('preset-status').dataset.state === 'waiting');
+    assert.equal(nativePicker.actions[0][0], 'open');
+    assert.equal(nativePicker.actions.some(([type]) => type === 'other'), false);
+    assert.deepEqual(nativePicker.actions.slice(1, -1).map(([type,, count]) => [type, count]), [
+        ['uncheck', 11], ['check', 12], ['uncheck', 11], ['check', 12],
+        ['uncheck', 11], ['check', 12], ['uncheck', 11], ['check', 12]
+    ]);
+    assert.equal(nativePicker.actions.filter(([type]) => type === 'confirm').length, 1);
+    assert.deepEqual(nativePicker.selected.toSorted(), [
+        ...presetMetrics.map(([, label]) => label), '实时在线人数', '直播间用户支付金额', '成交人数', '成交件数'
+    ].toSorted());
+    assert.equal(sentinel.eventRequests.length, 1);
+
+    sentinel.capture(metrics);
+    assert.equal(sentinel.element('preset-status').dataset.state, 'waiting');
+    assert.equal(sentinel.eventRequests.length, 2);
+    sentinel.eventRequests[1].reply();
+
+    sentinel.capture(presetMetricsResponse());
+    await waitForPreset(sentinel, () => sentinel.element('preset-status').dataset.state === 'ready');
+    assert.equal(sentinel.element('start').textContent.trim(), '重新配置');
+    assert.equal(sentinel.eventRequests.length, 3);
+    const [event] = sentinel.eventRequests[2].events;
+    assert.equal(event.eventType, 'CORE_METRICS');
+    assert.equal(event.roomId, roomId);
+    assert.equal(event.gpm_amount_yuan, 1823.45);
+    assert.equal(event.watch_pay_ucnt_ratio, 0.0582);
+    assert.equal(event.avg_watch_duration_seconds, 53);
+    assert.equal(event.ad_cost_yuan, 2376);
+    assert.equal(event.old_fans_pay_ucnt_ratio, 0.0625);
+    assert.equal(event.interact_watch_ucnt_ratio, 0.03125);
+    assert.equal(event.follow_anchor_watch_ucnt_ratio, 0.0075);
+    assert.equal(event.real_refund_amt_ratio, 0.095);
+});
+
+test('Start adds two missing metrics in an already-open dialog with six required metrics selected', async () => {
+    const labels = presetMetrics.map(([, label]) => label);
+    const nativePicker = createNativePicker({ initialSelection: labels.slice(0, 6), maximumSelection: 12, alreadyOpen: true });
+    const sentinel = startSentinel({ nativePicker });
+    sentinel.openPanel();
+    sentinel.element('start').dispatchEvent(new Event('click'));
+
+    await waitForPreset(sentinel, () => sentinel.element('preset-status').dataset.state === 'waiting');
+    assert.deepEqual(nativePicker.actions, [
+        ['check', labels[6], 7],
+        ['check', labels[7], 8],
+        ['confirm']
+    ]);
+    assert.deepEqual(nativePicker.selected.toSorted(), labels.toSorted());
+});
+
+test('Start uses free slots before replacing other metrics at the native maximum', async () => {
+    const labels = presetMetrics.map(([, label]) => label);
+    const nativePicker = createNativePicker({ initialSelection: [...labels.slice(0, 4), '成交金额', '在线人数'] });
+    const sentinel = startSentinel({ nativePicker });
+    sentinel.openPanel();
+    sentinel.element('start').dispatchEvent(new Event('click'));
+
+    await waitForPreset(sentinel, () => sentinel.element('preset-status').dataset.state === 'waiting');
+    assert.deepEqual(nativePicker.actions.slice(1, -1).map(([type,, count]) => [type, count]), [
+        ['check', 7], ['check', 8], ['uncheck', 7], ['check', 8], ['uncheck', 7], ['check', 8]
+    ]);
+    assert.deepEqual(nativePicker.selected.toSorted(), labels.toSorted());
+});
+
+test('Start never changes or saves a native dialog with fewer than six initial selections', async () => {
+    const initialSelection = presetMetrics.slice(0, 5).map(([, label]) => label);
+    const nativePicker = createNativePicker({ initialSelection, maximumSelection: 12 });
+    const sentinel = startSentinel({ nativePicker });
+    sentinel.openPanel();
+    sentinel.element('start').dispatchEvent(new Event('click'));
+
+    const status = sentinel.element('preset-status');
+    await waitForPreset(sentinel, () => status.dataset.state === 'error' || status.dataset.state === 'waiting');
+    assert.equal(status.dataset.state, 'error');
+    assert.equal(nativePicker.actions[0][0], 'open');
+    assert.ok(nativePicker.actions.every(([type]) => type === 'open' || type === 'cancel'));
+    assert.deepEqual(nativePicker.selected, initialSelection);
+    assert.equal(sentinel.element('start').disabled, false);
+    assert.equal(sentinel.eventRequests.length, 0);
+});
+
+test('Start leaves the native selection uncommitted when a required option is missing', async () => {
+    const nativePicker = createNativePicker({ missingMetric: '退款金额占比' });
+    const sentinel = startSentinel({ nativePicker });
+    const initialSelection = nativePicker.selected;
+    sentinel.openPanel();
+    sentinel.element('start').dispatchEvent(new Event('click'));
+
+    await waitForPreset(sentinel, () => sentinel.element('preset-status').dataset.state === 'error');
+    assert.equal(nativePicker.actions[0][0], 'open');
+    assert.equal(nativePicker.actions.some(([type]) => type === 'confirm'), false);
+    assert.deepEqual(nativePicker.selected, initialSelection);
+    assert.equal(sentinel.element('start').disabled, false);
+    assert.equal(sentinel.eventRequests.length, 0);
+});
+
 test('a metric captured on XHR load immediately starts an event request', () => {
     const sentinel = startSentinel();
     sentinel.capture(metrics, { notifyDone: false });
@@ -509,6 +740,23 @@ test('the panel identifies a valid response with no business data', () => {
     const row = sentinel.metricsRow();
     assert.equal(row.dataset.status, 'empty');
     assert.equal(row.querySelector('.status').textContent, '无可用数据');
+});
+
+test('a Compass business error is kept in the panel without submitting a metrics event', () => {
+    const sentinel = startSentinel();
+    const errorResponse = JSON.stringify({ st: 11001, code: 11001, data: null, msg: 'Example request rejected' });
+    sentinel.capture(errorResponse, { requestUrl: signedMetricsUrl });
+    sentinel.openPanel();
+
+    assert.equal(sentinel.element('response-count').textContent.trim(), '1');
+    assert.equal(sentinel.element('captured-count').textContent.trim(), '0');
+    assert.equal(sentinel.element('sent-count').textContent.trim(), '0');
+    assert.equal(sentinel.eventRequests.length, 0);
+    const row = sentinel.metricsRow();
+    assert.equal(row.dataset.status, 'apiError');
+    assert.equal(row.querySelector('.status').textContent, '接口返回错误 11001');
+    assert.equal(row.querySelector('.parsed').hidden, true);
+    assert.equal(row.querySelector('.raw pre').textContent, errorResponse);
 });
 
 function assertSingleMetricSubmission(sentinel) {
@@ -625,27 +873,30 @@ test('a failed full batch retains its order and IDs until the delayed retry', ()
     assert.equal(sentinel.element('sent-count').textContent.trim(), '32');
 });
 
-test('transparently injects all 8 required metrics into core_data request URL on xhr open', () => {
+test('XHR opens a signed core metrics request with the original URL bytes', () => {
     const sentinel = startSentinel();
-    const xhr = new sentinel.pageWindow.XMLHttpRequest();
-    const originalUrl = `${compassOrigin}/compass_api/shop/live/live_screen/core_data?room_id=${roomId}&index_selected=stat_cost%2Ccurrent_cnt`;
-    xhr.open('GET', originalUrl);
+    const relativeUrl = signedMetricsUrl.slice(compassOrigin.length);
+    sentinel.capture(metrics, {
+        requestUrl: relativeUrl,
+        responseUrl: signedMetricsUrl,
+        beforeSend(xhr) {
+            assert.equal(xhr.openedUrl, relativeUrl);
+        }
+    });
+    assertSingleMetricSubmission(sentinel);
+});
 
-    assert.ok(xhr.openedUrl, 'xhr.openedUrl should be recorded');
-    const parsed = new URL(xhr.openedUrl);
-    const selected = parsed.searchParams.get('index_selected').split(',');
-    const expected = [
-        'stat_cost',
-        'current_cnt',
-        'gpm',
-        'watch_pay_ucnt_ratio',
-        'avg_watch_duration',
-        'old_fans_pay_ucnt_ratio',
-        'interact_watch_ucnt_ratio',
-        'follow_anchor_watch_ucnt_ratio',
-        'real_refund_amt_ratio'
-    ];
-    for (const key of expected) {
-        assert.ok(selected.includes(key), `Missing expected metric in URL: ${key}`);
-    }
+test('Fetch receives the original signed core metrics URL and returns its response', async () => {
+    const response = {
+        url: signedMetricsUrl,
+        clone: () => ({ text: async () => metrics })
+    };
+    const sentinel = startSentinel({
+        pageFetch: async (requestUrl) => {
+            assert.equal(requestUrl, signedMetricsUrl);
+            return response;
+        }
+    });
+    assert.equal(await sentinel.fetchTarget(signedMetricsUrl), response);
+    assertSingleMetricSubmission(sentinel);
 });
