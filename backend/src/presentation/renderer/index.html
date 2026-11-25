@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>抖音直播重点指标监控表格</title>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: #131b2e;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --gpm-color: #f59e0b;
+            --ratio-color: #10b981;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow-x: hidden;
+        }
+
+        header.top-bar {
+            background: rgba(19, 27, 46, 0.9);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+            padding: 14px 28px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .brand-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-title h1 {
+            font-size: 16px;
+            font-weight: 600;
+        }
+
+        .pulse-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 11px;
+            font-weight: 500;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .pulse-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background-color: #10b981;
+            animation: pulse-glow 1.8s infinite;
+        }
+
+        @keyframes pulse-glow {
+            0% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+            70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+            100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+        }
+
+        .room-counter {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        main.container {
+            flex: 1;
+            padding: 24px;
+            max-width: 1560px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        .table-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            overflow-x: auto;
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+        }
+
+        table.monitoring-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+            white-space: nowrap;
+        }
+
+        table.monitoring-table thead tr {
+            background: rgba(0, 0, 0, 0.4);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        table.monitoring-table th {
+            padding: 14px 18px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #9ca3af;
+            letter-spacing: 0.4px;
+        }
+
+        table.monitoring-table tbody tr {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+            transition: background-color 0.25s ease;
+        }
+
+        table.monitoring-table tbody tr:hover {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        table.monitoring-table td {
+            padding: 16px 18px;
+            vertical-align: middle;
+            font-size: 14px;
+        }
+
+        .room-cell {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .status-dot.online {
+            background-color: #10b981;
+            box-shadow: 0 0 6px #10b981;
+        }
+
+        .status-dot.offline {
+            background-color: #ef4444;
+            box-shadow: 0 0 6px #ef4444;
+        }
+
+        .room-name-text {
+            font-size: 14px;
+            font-weight: 700;
+            color: #f3f4f6;
+        }
+
+        .num-cell {
+            font-family: monospace;
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+        }
+
+        .val-gpm {
+            color: var(--gpm-color);
+            font-size: 16px;
+        }
+
+        .val-watch-ratio {
+            color: var(--ratio-color);
+            font-size: 16px;
+        }
+
+        .val-cost {
+            color: #f59e0b;
+        }
+
+        .val-muted {
+            color: #6b7280;
+        }
+
+        .val-time {
+            font-size: 12px;
+            color: #9ca3af;
+            font-family: monospace;
+            text-align: right;
+        }
+
+        .flash-update {
+            animation: highlight-pulse 0.8s ease-out;
+        }
+
+        @keyframes highlight-pulse {
+            0% { background-color: rgba(37, 99, 235, 0.22); }
+            100% { background-color: transparent; }
+        }
+
+        .empty-view {
+            text-align: center;
+            padding: 90px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-view svg {
+            width: 56px;
+            height: 56px;
+            stroke: #4b5563;
+            margin-bottom: 12px;
+        }
+    </style>
+</head>
+<body>
+
+    <header class="top-bar">
+        <div class="brand-title">
+            <span class="pulse-badge">
+                <span class="pulse-dot"></span>
+                <span>总控实时服务已就绪</span>
+            </span>
+            <h1>抖音直播核心指标监控表格</h1>
+        </div>
+
+        <div class="room-counter" id="activeCountLabel">当前监控: 0 个直播间</div>
+    </header>
+
+    <main class="container">
+        <div class="table-card" id="tableCard">
+            <table class="monitoring-table">
+                <thead>
+                    <tr>
+                        <th>直播间</th>
+                        <th style="color:var(--gpm-color);">千次</th>
+                        <th style="color:var(--ratio-color);">观看成交率(人数)</th>
+                        <th>人均观看时长</th>
+                        <th>投放消耗</th>
+                        <th>成交老粉占比</th>
+                        <th>观看互动率(人数)</th>
+                        <th>观看关注率(人数)</th>
+                        <th>退款金额占比</th>
+                        <th style="text-align:right;">更新时间</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <!-- 动态行数据 -->
+                </tbody>
+            </table>
+        </div>
+
+        <div class="empty-view" id="emptyView" style="display:none;">
+            <svg fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+            <h3>暂无活跃大屏接入</h3>
+            <p style="margin-top:6px;font-size:13px;">请在浏览器中打开抖音电商罗盘大屏并启用油猴哨兵脚本</p>
+        </div>
+    </main>
+
+    <script>
+        const tableBody = document.getElementById('tableBody');
+        const emptyElement = document.getElementById('emptyView');
+        const tableCard = document.getElementById('tableCard');
+        const activeCountLabel = document.getElementById('activeCountLabel');
+
+        const prevValues = {};
+
+        function formatCurrency(val) {
+            if (val === null || val === undefined) return '-';
+            return '¥' + Number(val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatPercent(val) {
+            if (val === null || val === undefined) return '-';
+            return (Number(val) * 100).toFixed(2) + '%';
+        }
+
+        function formatSeconds(val) {
+            if (val === null || val === undefined) return '-';
+            return Math.round(Number(val)) + ' 秒';
+        }
+
+        function formatTime(ts) {
+            const d = ts ? new Date(ts) : new Date();
+            const h = String(d.getHours()).padStart(2, '0');
+            const m = String(d.getMinutes()).padStart(2, '0');
+            const s = String(d.getSeconds()).padStart(2, '0');
+            return `${h}:${m}:${s}`;
+        }
+
+        function updateTable(rooms) {
+            const list = rooms || [];
+            activeCountLabel.textContent = `当前监控: ${list.length} 个直播间`;
+
+            if (list.length === 0) {
+                emptyElement.style.display = 'block';
+                tableCard.style.display = 'none';
+                return;
+            }
+
+            emptyElement.style.display = 'none';
+            tableCard.style.display = 'block';
+
+            tableBody.innerHTML = list.map(room => {
+                const m = room.latestMetrics || {};
+                const isOnline = room.isOnline;
+                const timeStr = formatTime(room.lastHeartbeatTs);
+
+                const gpm = m.gpm_amount_yuan;
+                const watchPayRatio = (m.watch_pay_ucnt_ratio !== null && m.watch_pay_ucnt_ratio !== undefined) ? m.watch_pay_ucnt_ratio : m.watch_to_pay_ratio;
+                const avgDuration = m.avg_watch_duration_seconds;
+                const adCost = m.ad_cost_yuan;
+                const oldFansRatio = m.old_fans_pay_ucnt_ratio;
+                const interactRatio = m.interact_watch_ucnt_ratio;
+                const followRatio = m.follow_anchor_watch_ucnt_ratio;
+                const refundRatio = m.real_refund_amt_ratio;
+
+                // 检测是否变动以触发高亮
+                const prev = prevValues[room.roomId];
+                const hasChanged = prev && (prev.gpm !== gpm || prev.watchPayRatio !== watchPayRatio);
+                prevValues[room.roomId] = { gpm, watchPayRatio };
+
+                return `
+                    <tr class="${hasChanged ? 'flash-update' : ''}" id="row-${room.roomId}">
+                        <td>
+                            <div class="room-cell">
+                                <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
+                                <div class="room-name-text">${room.shopName || room.roomId}</div>
+                            </div>
+                        </td>
+                        <td>
+                            <div class="num-cell val-gpm">${formatCurrency(gpm)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell val-watch-ratio">${formatPercent(watchPayRatio)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell ${avgDuration !== null ? '' : 'val-muted'}">${formatSeconds(avgDuration)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell val-cost">${formatCurrency(adCost)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell ${oldFansRatio !== null ? '' : 'val-muted'}">${formatPercent(oldFansRatio)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell ${interactRatio !== null ? '' : 'val-muted'}">${formatPercent(interactRatio)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell ${followRatio !== null ? '' : 'val-muted'}">${formatPercent(followRatio)}</div>
+                        </td>
+                        <td>
+                            <div class="num-cell ${refundRatio !== null ? '' : 'val-muted'}">${formatPercent(refundRatio)}</div>
+                        </td>
+                        <td>
+                            <div class="val-time">${timeStr}</div>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function connectSse() {
+            const es = new EventSource('/api/stream/subscribe');
+            es.onmessage = function (e) {
+                try {
+                    const snapshot = JSON.parse(e.data);
+                    updateTable(snapshot.rooms || []);
+                } catch (err) {
+                    console.error('SSE Error:', err);
+                }
+            };
+            es.onerror = function () {
+                es.close();
+                setTimeout(connectSse, 3000);
+            };
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            connectSse();
+        });
+    </script>
+</body>
+</html>
