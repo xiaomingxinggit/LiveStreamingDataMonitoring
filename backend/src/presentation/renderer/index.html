@@ -501,6 +501,52 @@
             letter-spacing: -0.1px;
         }
 
+        .product-sort-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            width: 100%;
+            min-height: 22px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            letter-spacing: inherit;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .product-sort-button:hover {
+            color: var(--text-main);
+        }
+
+        .product-sort-button.is-active {
+            color: var(--accent-blue);
+        }
+
+        .product-sort-button:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+
+        .product-sort-indicator {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 12px;
+            flex: 0 0 12px;
+            font-size: 10px;
+            line-height: 1;
+            opacity: 0.35;
+        }
+
+        .product-sort-button.is-active .product-sort-indicator {
+            opacity: 1;
+        }
+
         table.product-subtable td {
             padding: 9px 12px;
             vertical-align: middle;
@@ -790,6 +836,107 @@
             return ts ? formatTime(ts) : '-';
         }
 
+        const DEFAULT_PRODUCT_SORT = Object.freeze({
+            key: 'product_pay_amount_yuan',
+            direction: 'desc'
+        });
+        const PRODUCT_SORT_FIELDS = new Set([
+            'product_pay_amount_yuan',
+            'product_show_users_count',
+            'product_click_users_count',
+            'product_show_click_users_ratio',
+            'product_click_pay_users_ratio',
+            'product_gpm_amount_yuan'
+        ]);
+        const productSortByRoom = new Map();
+        let latestRooms = [];
+
+        function getProductSort(roomId) {
+            return productSortByRoom.get(String(roomId)) || DEFAULT_PRODUCT_SORT;
+        }
+
+        function getNextProductSort(currentSort, key) {
+            return {
+                key,
+                direction: currentSort.key === key && currentSort.direction === 'desc'
+                    ? 'asc'
+                    : 'desc'
+            };
+        }
+
+        function toSortableNumber(value) {
+            if (value === null || value === undefined || value === '') return null;
+            const numericValue = Number(value);
+            return Number.isFinite(numericValue) ? numericValue : null;
+        }
+
+        function sortProducts(products, sortState = DEFAULT_PRODUCT_SORT) {
+            const source = Array.isArray(products) ? products : [];
+            const key = PRODUCT_SORT_FIELDS.has(sortState?.key)
+                ? sortState.key
+                : DEFAULT_PRODUCT_SORT.key;
+            const direction = sortState?.direction === 'asc' ? 'asc' : 'desc';
+
+            return source
+                .map((product, index) => ({
+                    product,
+                    index,
+                    value: toSortableNumber(product?.[key])
+                }))
+                .sort((left, right) => {
+                    if (left.value === null && right.value === null) return left.index - right.index;
+                    if (left.value === null) return 1;
+                    if (right.value === null) return -1;
+                    if (left.value === right.value) return left.index - right.index;
+                    return direction === 'asc'
+                        ? left.value - right.value
+                        : right.value - left.value;
+                })
+                .map(item => item.product);
+        }
+
+        function renderProductSortHeader(roomId, key, label) {
+            const sortState = getProductSort(roomId);
+            const isActive = sortState.key === key;
+            const isDescending = sortState.direction === 'desc';
+            const ariaSort = isActive ? (isDescending ? 'descending' : 'ascending') : 'none';
+            const indicator = isActive ? (isDescending ? '↓' : '↑') : '↕';
+            const currentState = isActive ? `当前${isDescending ? '倒序' : '升序'}` : '当前未排序';
+            const nextDirection = isActive && isDescending ? '升序' : '倒序';
+            const actionLabel = `${label}，${currentState}，点击按${nextDirection}排列`;
+
+            return `
+                <th style="text-align: right;" aria-sort="${ariaSort}">
+                    <button class="product-sort-button ${isActive ? 'is-active' : ''}"
+                            type="button"
+                            data-room-id="${encodeURIComponent(String(roomId))}"
+                            data-sort-key="${key}"
+                            aria-label="${actionLabel}"
+                            title="${actionLabel}">
+                        <span>${label}</span>
+                        <span class="product-sort-indicator" aria-hidden="true">${indicator}</span>
+                    </button>
+                </th>
+            `;
+        }
+
+        function setProductSort(roomId, key) {
+            if (!PRODUCT_SORT_FIELDS.has(key)) return;
+            const normalizedRoomId = String(roomId);
+            const nextSort = getNextProductSort(getProductSort(normalizedRoomId), key);
+            productSortByRoom.set(normalizedRoomId, nextSort);
+            updateTable(latestRooms);
+        }
+
+        tableBody.addEventListener('click', event => {
+            const sortButton = event.target.closest('.product-sort-button');
+            if (!sortButton) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const roomId = decodeURIComponent(sortButton.dataset.roomId || '');
+            setProductSort(roomId, sortButton.dataset.sortKey || '');
+        });
+
         const expandedRooms = new Set();
         let allExpanded = false;
 
@@ -839,6 +986,7 @@
 
         function updateTable(rooms) {
             const list = rooms || [];
+            latestRooms = list;
             activeCountLabel.textContent = `当前监控: ${list.length} 个直播间`;
 
             if (list.length === 0) {
@@ -886,7 +1034,8 @@
                     }];
                 }
 
-                const productRowsHtml = products.length > 0 ? products.map((prod, pIdx) => {
+                const sortedProducts = sortProducts(products, getProductSort(room.roomId));
+                const productRowsHtml = sortedProducts.length > 0 ? sortedProducts.map((prod, pIdx) => {
                     const showCnt = prod.product_show_users_count !== null && prod.product_show_users_count !== undefined ? Number(prod.product_show_users_count).toLocaleString('zh-CN') : '-';
                     const clickCnt = prod.product_click_users_count !== null && prod.product_click_users_count !== undefined ? Number(prod.product_click_users_count).toLocaleString('zh-CN') : '-';
                     return `
@@ -963,12 +1112,12 @@
                                             <tr>
                                                 <th style="width: 54px; text-align: left;">序号</th>
                                                 <th style="min-width: 260px; text-align: left;">商品信息</th>
-                                                <th style="text-align: right;">累计用户支付金额</th>
-                                                <th style="text-align: right;">商品曝光人数</th>
-                                                <th style="text-align: right;">商品点击人数</th>
-                                                <th style="text-align: right;">曝光-点击转化率</th>
-                                                <th style="text-align: right;">点击-成交转化率</th>
-                                                <th style="text-align: right;">商品千次曝光成交</th>
+                                                ${renderProductSortHeader(room.roomId, 'product_pay_amount_yuan', '累计用户支付金额')}
+                                                ${renderProductSortHeader(room.roomId, 'product_show_users_count', '商品曝光人数')}
+                                                ${renderProductSortHeader(room.roomId, 'product_click_users_count', '商品点击人数')}
+                                                ${renderProductSortHeader(room.roomId, 'product_show_click_users_ratio', '曝光-点击转化率')}
+                                                ${renderProductSortHeader(room.roomId, 'product_click_pay_users_ratio', '点击-成交转化率')}
+                                                ${renderProductSortHeader(room.roomId, 'product_gpm_amount_yuan', '商品千次曝光成交')}
                                                 <th style="text-align: right; width: 90px;">更新时间</th>
                                             </tr>
                                         </thead>
