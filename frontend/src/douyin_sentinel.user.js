@@ -1,11 +1,13 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
-// @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.13.1
+// @namespace    https://github.com/xiaomingxinggit/LiveStreamingDataMonitoring
+// @version      1.14.0
 // @description  实时监听抖音电商罗盘大屏数据（基础信息、核心指标、商品列表、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/live/shop*
 // @noframes
+// @updateURL    https://raw.githubusercontent.com/xiaomingxinggit/LiveStreamingDataMonitoring/main/frontend/src/douyin_sentinel.user.js
+// @downloadURL  https://raw.githubusercontent.com/xiaomingxinggit/LiveStreamingDataMonitoring/main/frontend/src/douyin_sentinel.user.js
 // @resource     vueRuntimeJs https://cdn.jsdelivr.net/npm/vue@3.5.46/dist/vue.global.prod.js
 // @resource     elementPlusJs https://cdn.jsdelivr.net/npm/element-plus@2.14.8/dist/index.full.min.js
 // @resource     elementPlusCss https://cdn.jsdelivr.net/npm/element-plus@2.14.8/dist/index.css
