@@ -208,6 +208,182 @@
             100% { background-color: transparent; }
         }
 
+        /* 展开卡片与行交互样式 */
+        .main-row {
+            cursor: pointer;
+        }
+
+        .main-row.is-expanded {
+            background-color: rgba(30, 41, 59, 0.4);
+        }
+
+        .expand-caret {
+            display: inline-block;
+            font-size: 10px;
+            color: #64748b;
+            margin-right: 2px;
+            transition: transform 0.2s ease, color 0.2s ease;
+            user-select: none;
+            flex-shrink: 0;
+        }
+
+        .main-row.is-expanded .expand-caret {
+            transform: rotate(90deg);
+            color: #38bdf8;
+        }
+
+        .card-row {
+            background-color: #141d30;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .card-row.hidden {
+            display: none;
+        }
+
+        .product-card-wrap {
+            padding: 12px 20px 14px 44px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .product-thumb-box {
+            position: relative;
+            width: 52px;
+            height: 52px;
+            border-radius: 6px;
+            overflow: hidden;
+            background: #1e293b;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            flex-shrink: 0;
+        }
+
+        .product-thumb-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .product-cart-tag {
+            position: absolute;
+            top: 2px;
+            left: 2px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fbbf24;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 1px 4px;
+            border-radius: 3px;
+            line-height: 1;
+        }
+
+        .product-content-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            min-width: 0;
+        }
+
+        .product-header-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .badge-explaining {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            background: rgba(16, 185, 129, 0.16);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: #34d399;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .badge-explaining .dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 6px #10b981;
+        }
+
+        .badge-idle {
+            background: rgba(107, 114, 128, 0.2);
+            color: #9ca3af;
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+
+        .product-name-str {
+            font-size: 13px;
+            font-weight: 600;
+            color: #f1f5f9;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 600px;
+        }
+
+        .product-data-chips {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+            font-size: 12px;
+        }
+
+        .chip-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 3px 8px;
+            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .chip-label {
+            color: #94a3b8;
+        }
+
+        .chip-val {
+            color: #f8fafc;
+            font-weight: 700;
+            font-family: "JetBrains Mono", monospace;
+        }
+
+        .chip-val.price { color: #ef4444; }
+        .chip-val.sales { color: #fbbf24; }
+        .chip-val.stock { color: #34d399; }
+        .chip-val.clicks { color: #60a5fa; }
+
+        .toggle-all-btn {
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            color: #93c5fd;
+            padding: 5px 12px;
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .toggle-all-btn:hover {
+            background: rgba(59, 130, 246, 0.2);
+            color: #ffffff;
+            border-color: #3b82f6;
+        }
+
         .empty-view {
             text-align: center;
             padding: 90px 20px;
@@ -233,7 +409,10 @@
             <h1>抖音直播核心指标监控表格</h1>
         </div>
 
-        <div class="room-counter" id="activeCountLabel">当前监控: 0 个直播间</div>
+        <div style="display:flex;align-items:center;gap:14px;">
+            <div class="room-counter" id="activeCountLabel">当前监控: 0 个直播间</div>
+            <button class="toggle-all-btn" id="toggleAllBtn" onclick="toggleAllRooms()">全部展开商品 ▼</button>
+        </div>
     </header>
 
     <main class="container">
@@ -297,6 +476,53 @@
             return `${h}:${m}:${s}`;
         }
 
+        const expandedRooms = new Set();
+        let allExpanded = false;
+
+        function toggleRoom(roomId) {
+            if (expandedRooms.has(roomId)) {
+                expandedRooms.delete(roomId);
+            } else {
+                expandedRooms.add(roomId);
+            }
+            const mainRow = document.getElementById(`row-${roomId}`);
+            const cardRow = document.getElementById(`card-${roomId}`);
+            if (mainRow && cardRow) {
+                const isExp = expandedRooms.has(roomId);
+                if (isExp) {
+                    mainRow.classList.add('is-expanded');
+                    cardRow.classList.remove('hidden');
+                } else {
+                    mainRow.classList.remove('is-expanded');
+                    cardRow.classList.add('hidden');
+                }
+            }
+        }
+
+        function toggleAllRooms() {
+            allExpanded = !allExpanded;
+            const btn = document.getElementById('toggleAllBtn');
+            btn.textContent = allExpanded ? '全部收起商品 ▲' : '全部展开商品 ▼';
+            const allRows = document.querySelectorAll('.main-row');
+            allRows.forEach(row => {
+                const roomId = row.getAttribute('data-room-id');
+                if (roomId) {
+                    if (allExpanded) expandedRooms.add(roomId);
+                    else expandedRooms.delete(roomId);
+                    const card = document.getElementById(`card-${roomId}`);
+                    if (card) {
+                        if (allExpanded) {
+                            row.classList.add('is-expanded');
+                            card.classList.remove('hidden');
+                        } else {
+                            row.classList.remove('is-expanded');
+                            card.classList.add('hidden');
+                        }
+                    }
+                }
+            });
+        }
+
         function updateTable(rooms) {
             const list = rooms || [];
             activeCountLabel.textContent = `当前监控: ${list.length} 个直播间`;
@@ -324,15 +550,21 @@
                 const followRatio = m.follow_anchor_watch_ucnt_ratio;
                 const refundRatio = m.real_refund_amt_ratio;
 
+                // 商品信息
+                const p = room.explainingProduct;
+                const hasProduct = Boolean(p && (p.productName || p.productId));
+                const isExpanded = expandedRooms.has(room.roomId);
+
                 // 检测是否变动以触发高亮
                 const prev = prevValues[room.roomId];
                 const hasChanged = prev && (prev.gpm !== gpm || prev.watchPayRatio !== watchPayRatio);
                 prevValues[room.roomId] = { gpm, watchPayRatio };
 
                 return `
-                    <tr class="${hasChanged ? 'flash-update' : ''}" id="row-${room.roomId}">
+                    <tr class="main-row ${hasChanged ? 'flash-update' : ''} ${isExpanded ? 'is-expanded' : ''}" id="row-${room.roomId}" data-room-id="${room.roomId}" onclick="toggleRoom('${room.roomId}')">
                         <td>
                             <div class="room-cell">
+                                <span class="expand-caret">▶</span>
                                 <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
                                 <div class="room-name-text">${room.shopName || room.roomId}</div>
                             </div>
@@ -363,6 +595,57 @@
                         </td>
                         <td>
                             <div class="val-time">${timeStr}</div>
+                        </td>
+                    </tr>
+                    <tr class="card-row ${isExpanded ? '' : 'hidden'}" id="card-${room.roomId}">
+                        <td colspan="10">
+                            <div class="product-card-wrap">
+                                ${hasProduct ? `
+                                    <div class="product-thumb-box">
+                                        ${p.productImg ? `<img src="${p.productImg}" alt="商品图">` : '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:#64748b;font-size:10px;">暂无图</div>'}
+                                        ${p.cartIndex ? `<span class="product-cart-tag">#${p.cartIndex}</span>` : ''}
+                                    </div>
+                                    <div class="product-content-col">
+                                        <div class="product-header-line">
+                                            <span class="${p.isExplaining ? 'badge-explaining' : 'badge-idle'}">
+                                                ${p.isExplaining ? '<span class="dot"></span>正在讲解' : '已讲解'}
+                                            </span>
+                                            <span class="product-name-str" title="${p.productName}">${p.productName || '未命名商品'}</span>
+                                        </div>
+                                        <div class="product-data-chips">
+                                            ${p.product_pay_amount_yuan !== null && p.product_pay_amount_yuan !== undefined ? `
+                                                <div class="chip-item">
+                                                    <span class="chip-label">本场讲解销售额</span>
+                                                    <span class="chip-val sales">${formatCurrency(p.product_pay_amount_yuan)}</span>
+                                                </div>
+                                            ` : ''}
+                                            ${p.product_pay_orders_count !== null && p.product_pay_orders_count !== undefined ? `
+                                                <div class="chip-item">
+                                                    <span class="chip-label">成交件数</span>
+                                                    <span class="chip-val">${p.product_pay_orders_count} 件</span>
+                                                </div>
+                                            ` : ''}
+                                            ${p.product_stock_count !== null && p.product_stock_count !== undefined ? `
+                                                <div class="chip-item">
+                                                    <span class="chip-label">剩余库存</span>
+                                                    <span class="chip-val stock">${Number(p.product_stock_count).toLocaleString('zh-CN')} 件</span>
+                                                </div>
+                                            ` : ''}
+                                            ${p.recentFiveMinClickCount !== null && p.recentFiveMinClickCount !== undefined ? `
+                                                <div class="chip-item">
+                                                    <span class="chip-label">近5分钟点击</span>
+                                                    <span class="chip-val clicks">${p.recentFiveMinClickCount} 次</span>
+                                                </div>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+                                ` : `
+                                    <div style="display:flex;align-items:center;gap:10px;">
+                                        <span class="badge-idle">未在讲解商品</span>
+                                        <span style="color:#94a3b8;font-size:13px;">主播当前未挂车讲解或正在互动中</span>
+                                    </div>
+                                `}
+                            </div>
                         </td>
                     </tr>
                 `;
