@@ -118,10 +118,88 @@ test('parseProductExplainDetail extracts currently explained product detail', ()
     assert.equal(parsed.clickTrend[1].clickCount, 16);
 });
 
+test('parseProductList extracts configured product metrics and keeps page and sort metadata', () => {
+    const selected = [
+        'pay_amt',
+        'product_show_ucnt',
+        'product_click_ucnt',
+        'product_show_click_ucnt_ratio',
+        'product_click_pay_ucnt_ratio',
+        'gpm'
+    ];
+    const fixture = {
+        data: {
+            data_head: selected.map(index_name => ({ index_name })),
+            data_result: [
+                {
+                    product_id: '3783122488695848970',
+                    product_name: '',
+                    title: 'chikoku雪球猫爪棉靴·热销款',
+                    product_img: '',
+                    image_uri: 'https://p26-item.ecombdimg.com/product-1.jpeg',
+                    shop_cart_num: '',
+                    room_cart_num: 1,
+                    pay_amt: { unit: 'price', value: 139915 },
+                    product_show_ucnt: { unit: 'number', value: 728 },
+                    product_click_ucnt: { unit: 'number', value: 46 },
+                    product_show_click_ucnt_ratio: { unit: 'ratio', value: 0.0632 },
+                    product_click_pay_ucnt_ratio: { unit: 'ratio', value: 0.0166 },
+                    gpm: { unit: 'price', value: 17970 }
+                },
+                {
+                    product_id: '3783122488695848971',
+                    product_name: 'chikoku猫爪星球棉拖',
+                    product_img: 'https://p26-item.ecombdimg.com/product-2.jpeg',
+                    cart_index: 2,
+                    index_data: [
+                        { index_name: 'pay_amt', value: { unit: 'price', value: 53539 } },
+                        { index_name: 'product_show_ucnt', value: { unit: 'number', value: 403 } },
+                        { index_name: 'product_click_ucnt', value: { unit: 'number', value: 21 } },
+                        { index_name: 'product_show_click_ucnt_ratio', value: { unit: 'ratio', value: 0.0521 } },
+                        { index_name: 'product_click_pay_ucnt_ratio', value: { unit: 'ratio', value: 0.0158 } },
+                        { index_name: 'gpm', value: { unit: 'price', value: 7980 } }
+                    ]
+                }
+            ],
+            page_result: { page_no: 0, page_size: 20, total: 42 }
+        }
+    };
+    const url = 'https://compass.jinritemai.com/compass_api/shop/live/live_screen/product_list' +
+        '?room_id=7711536474121833267&page_no=0&page_size=20&sort_field=pay_amt&is_asc=false';
+
+    const parsed = CompassParser.parseProductList(url, fixture, { roomId: '7711536474121833267' });
+
+    assert.ok(parsed);
+    assert.equal(parsed.eventType, 'PRODUCT_LIST');
+    assert.equal(parsed.roomId, '7711536474121833267');
+    assert.deepEqual(parsed.page, { current: 0, size: 20, total: 42 });
+    assert.deepEqual(parsed.sort, { field: 'pay_amt', order: 'desc' });
+    assert.deepEqual(parsed.indexSelected, selected);
+    assert.equal(parsed.products.length, 2);
+    assert.deepEqual(parsed.products[0], {
+        productId: '3783122488695848970',
+        productName: 'chikoku雪球猫爪棉靴 热销款',
+        productImg: 'https://p26-item.ecombdimg.com/product-1.jpeg',
+        cartIndex: 1,
+        product_pay_amount_yuan: 1399.15,
+        product_show_users_count: 728,
+        product_click_users_count: 46,
+        product_show_click_users_ratio: 0.0632,
+        product_click_pay_users_ratio: 0.0166,
+        product_gpm_amount_yuan: 179.70
+    });
+    assert.equal(parsed.products[1].cartIndex, 2);
+    assert.equal(parsed.products[1].product_pay_amount_yuan, 535.39);
+    assert.equal(parsed.products[1].product_show_users_count, 403);
+    assert.equal(parsed.products[1].product_gpm_amount_yuan, 79.80);
+});
+
 test('handles missing or malformed data gracefully without throwing', () => {
     assert.equal(CompassParser.parseLiveBaseInfo('url', null), null);
     assert.equal(CompassParser.parseLiveBaseInfo('url', {}), null);
     assert.equal(CompassParser.parseCoreData('url', {}), null);
     assert.equal(CompassParser.parseProductExplainDetail('url', { data: null }), null);
+    assert.equal(CompassParser.parseProductList('url', { data: null }), null);
+    assert.equal(CompassParser.parseProductList('url', { data: { data_result: [] } }), null);
     assert.equal(CompassParser.parseComments('url', { data: { comments: [] } }), null);
 });

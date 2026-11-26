@@ -16,7 +16,7 @@ function sanitizeText(value) {
 
 class MetricsCalculator {
     constructor(options = {}) {
-        this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 15000; // 15秒无心跳判定离线
+        this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90000; // 容忍 Chrome 后台计时器降频与短暂网络抖动
         this.historyWindowSize = options.historyWindowSize || 720; // 保持最多 1 小时 (按 5 秒采样可存 720 点)
         this.processedEventIds = new Set();
         this.maxProcessedCache = options.maxProcessedCache || 5000;
@@ -74,6 +74,18 @@ class MetricsCalculator {
                     product_click_to_pay_ratio: 0
                 },
                 explainingProduct: null,
+                productList: {
+                    products: [],
+                    page: { current: 0, size: 0, total: 0 },
+                    sort: { field: '', order: '' },
+                    indexSelected: [],
+                    collection: {
+                        startedAtIso: '',
+                        observedAtIso: '',
+                        intervalMinutes: 60,
+                        reportSequence: 0
+                    }
+                },
                 recentComments: [],
                 metricHistory: [], // [{ timestamp, gmv_amount_yuan, online_viewers_count }]
                 velocity: {
@@ -127,6 +139,9 @@ class MetricsCalculator {
             case 'EXPLAINING_PRODUCT':
                 this._applyProductExplain(room, event);
                 break;
+            case 'PRODUCT_LIST':
+                this._applyProductList(room, event);
+                break;
             case 'LIVE_COMMENTS':
                 this._applyComments(room, event);
                 break;
@@ -139,6 +154,54 @@ class MetricsCalculator {
         }
 
         return room;
+    }
+
+    /**
+     * 从本地持久化快照恢复房间数据。恢复后保持离线，等待哨兵新心跳确认在线。
+     */
+    restoreRooms(rooms) {
+        if (!Array.isArray(rooms)) return 0;
+        let restoredCount = 0;
+
+        for (const saved of rooms) {
+            if (!saved || !saved.roomId) continue;
+            const room = this.getOrCreateRoom(saved.roomId, saved.shopName);
+            room.shopName = sanitizeText(saved.shopName) || room.shopName;
+            room.liveStatusText = sanitizeText(saved.liveStatusText) || room.liveStatusText;
+            room.avatarUri = saved.avatarUri || room.avatarUri;
+            room.liveStartTime = saved.liveStartTime || room.liveStartTime;
+            room.latestMetrics = { ...room.latestMetrics, ...(saved.latestMetrics || {}) };
+            room.explainingProduct = saved.explainingProduct ? {
+                ...saved.explainingProduct,
+                productName: sanitizeText(saved.explainingProduct.productName || '')
+            } : null;
+
+            if (saved.productList && typeof saved.productList === 'object') {
+                room.productList = {
+                    ...room.productList,
+                    ...saved.productList,
+                    products: Array.isArray(saved.productList.products) ? saved.productList.products.map(product => ({
+                        ...product,
+                        productName: sanitizeText(product.productName || '')
+                    })) : [],
+                    page: { ...room.productList.page, ...(saved.productList.page || {}) },
+                    sort: { ...room.productList.sort, ...(saved.productList.sort || {}) },
+                    indexSelected: Array.isArray(saved.productList.indexSelected) ?
+                        saved.productList.indexSelected.map(String) : [],
+                    collection: { ...room.productList.collection, ...(saved.productList.collection || {}) }
+                };
+            }
+
+            room.recentComments = Array.isArray(saved.recentComments) ? saved.recentComments.slice(0, 50) : [];
+            room.metricHistory = Array.isArray(saved.metricHistory) ?
+                saved.metricHistory.slice(-this.historyWindowSize) : [];
+            room.velocity = { ...room.velocity, ...(saved.velocity || {}) };
+            room.isOnline = false;
+            room.lastHeartbeatTs = 0;
+            restoredCount++;
+        }
+
+        return restoredCount;
     }
 
     _applyBaseInfo(room, event) {
@@ -248,6 +311,44 @@ class MetricsCalculator {
         };
     }
 
+    _applyProductList(room, event) {
+        const finiteNumber = (value, fallback = 0) => {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? numeric : fallback;
+        };
+        const optionalNumber = value => value === null || value === undefined ? null : finiteNumber(value, null);
+        room.productList = {
+            products: Array.isArray(event.products) ? event.products.map(product => ({
+                productId: String(product.productId || ''),
+                productName: sanitizeText(product.productName || ''),
+                productImg: product.productImg || '',
+                cartIndex: finiteNumber(product.cartIndex),
+                product_pay_amount_yuan: optionalNumber(product.product_pay_amount_yuan),
+                product_show_users_count: optionalNumber(product.product_show_users_count),
+                product_click_users_count: optionalNumber(product.product_click_users_count),
+                product_show_click_users_ratio: optionalNumber(product.product_show_click_users_ratio),
+                product_click_pay_users_ratio: optionalNumber(product.product_click_pay_users_ratio),
+                product_gpm_amount_yuan: optionalNumber(product.product_gpm_amount_yuan)
+            })) : [],
+            page: {
+                current: finiteNumber(event.page?.current),
+                size: finiteNumber(event.page?.size),
+                total: finiteNumber(event.page?.total)
+            },
+            sort: {
+                field: String(event.sort?.field || ''),
+                order: ['asc', 'desc'].includes(event.sort?.order) ? event.sort.order : ''
+            },
+            indexSelected: Array.isArray(event.indexSelected) ? event.indexSelected.map(String) : [],
+            collection: {
+                startedAtIso: String(event.productCollectionStartedAtIso || ''),
+                observedAtIso: String(event.productDataObservedAtIso || event.timestampIso || ''),
+                intervalMinutes: finiteNumber(event.productReportIntervalMinutes, 60),
+                reportSequence: finiteNumber(event.productReportSequence)
+            }
+        };
+    }
+
     _applyComments(room, event) {
         if (Array.isArray(event.comments) && event.comments.length > 0) {
             const sanitizedComments = event.comments.map(c => ({
@@ -271,7 +372,6 @@ class MetricsCalculator {
             const timeSinceLastHeartbeat = currentTime - room.lastHeartbeatTs;
             if (timeSinceLastHeartbeat > this.heartbeatTimeoutMs) {
                 room.isOnline = false;
-                room.liveStatusText = '离线 未连接';
             }
         }
     }
@@ -299,6 +399,14 @@ class MetricsCalculator {
             totalAdCost += room.latestMetrics.ad_cost_yuan;
         }
 
+        const dashboardRooms = roomList.map(room => ({
+            ...room,
+            productList: {
+                ...room.productList,
+                products: room.productList.products.map(({ productId, ...product }) => product)
+            }
+        }));
+
         return {
             summary: {
                 total_rooms_count: roomList.length,
@@ -309,7 +417,7 @@ class MetricsCalculator {
                 total_ad_cost_yuan: Number(totalAdCost.toFixed(2)),
                 timestampIso: new Date().toISOString()
             },
-            rooms: roomList
+            rooms: dashboardRooms
         };
     }
 }

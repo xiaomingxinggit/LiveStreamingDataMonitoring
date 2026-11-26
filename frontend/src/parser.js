@@ -9,11 +9,45 @@ function sanitizeText(value) {
     return value.replace(/\u00B7/g, ' ').trim();
 }
 
+function firstNonEmptyValue(...values) {
+    return values.find(value => value !== null && value !== undefined && String(value).trim() !== '') ?? '';
+}
+
 function parsePriceCentsToYuan(centsVal) {
     if (typeof centsVal !== 'number') {
         centsVal = Number(centsVal) || 0;
     }
     return Number((centsVal / 100).toFixed(2));
+}
+
+function unwrapMetricValue(value) {
+    let current = value;
+    for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
+        if (Object.prototype.hasOwnProperty.call(current, 'value')) current = current.value;
+        else if (Object.prototype.hasOwnProperty.call(current, 'num_value')) current = current.num_value;
+        else break;
+    }
+    const numeric = Number(current);
+    return current !== '' && current !== null && current !== undefined && Number.isFinite(numeric) ? numeric : null;
+}
+
+function productMetricValue(row, name) {
+    const collections = [row.index_data, row.metric_data, row.metrics, row.data];
+    const direct = [row[name], ...collections.map(collection =>
+        collection && !Array.isArray(collection) ? collection[name] : undefined
+    )];
+    for (const candidate of direct) {
+        const value = unwrapMetricValue(candidate);
+        if (value !== null) return value;
+    }
+    for (const collection of collections.filter(Array.isArray)) {
+        const item = collection.find(entry =>
+            [entry?.index_name, entry?.field, entry?.key, entry?.name].includes(name)
+        );
+        const value = unwrapMetricValue(item);
+        if (value !== null) return value;
+    }
+    return null;
 }
 
 function extractRoomId(url, data) {
@@ -127,7 +161,75 @@ const CompassParser = {
         };
     },
 
-    // 4. 实时公屏弹幕解析
+    // 4. 商品列表及其配置指标解析
+    parseProductList: function (url, json, currentContext = {}) {
+        if (!json || typeof json !== 'object') return null;
+        const data = json.data;
+        const rows = data && (data.data_result ?? data.product_list ?? data.products);
+        if (!Array.isArray(rows) || rows.length === 0) return null;
+
+        let query;
+        try {
+            query = new URL(url).searchParams;
+        } catch {
+            query = new URLSearchParams();
+        }
+        const ratio = value => value === null ? null : Number(value.toFixed(6));
+        const products = rows.map((row, index) => {
+            const info = row.product_info ?? row.product ?? row.base_info ?? {};
+            const payCents = productMetricValue(row, 'pay_amt');
+            const gpmCents = productMetricValue(row, 'gpm');
+            return {
+                productId: String(row.product_id ?? row.id ?? info.product_id ?? info.id ?? ''),
+                productName: sanitizeText(firstNonEmptyValue(
+                    row.product_name, row.name, row.title, row.product_title, row.goods_name,
+                    info.product_name, info.name, info.title, info.product_title, info.goods_name
+                )),
+                productImg: firstNonEmptyValue(
+                    row.product_img, row.image_url, row.image_uri, row.img,
+                    info.product_img, info.image_url, info.image_uri, info.img
+                ),
+                cartIndex: Number(firstNonEmptyValue(
+                    row.shop_cart_num, row.room_cart_num, row.cart_index, row.product_rank,
+                    info.shop_cart_num, info.room_cart_num, info.cart_index, info.product_rank, index + 1
+                )),
+                product_pay_amount_yuan: payCents === null ? null : parsePriceCentsToYuan(payCents),
+                product_show_users_count: productMetricValue(row, 'product_show_ucnt'),
+                product_click_users_count: productMetricValue(row, 'product_click_ucnt'),
+                product_show_click_users_ratio: ratio(productMetricValue(row, 'product_show_click_ucnt_ratio')),
+                product_click_pay_users_ratio: ratio(productMetricValue(row, 'product_click_pay_ucnt_ratio')),
+                product_gpm_amount_yuan: gpmCents === null ? null : parsePriceCentsToYuan(gpmCents)
+            };
+        });
+        const pageResult = data.page_result || {};
+        const headSelected = Array.isArray(data.data_head) ? data.data_head
+            .map(item => item?.index_name ?? item?.field ?? item?.key)
+            .filter(Boolean) : [];
+        const selectedValue = data.index_selected ??
+            (headSelected.length > 0 ? headSelected : query.get('index_selected') ?? '');
+        const indexSelected = Array.isArray(selectedValue) ? selectedValue.map(String) :
+            String(selectedValue).split(',').map(item => item.trim()).filter(Boolean);
+        const sortField = String(data.sort_field ?? query.get('sort_field') ?? '');
+        const rawAscending = data.is_asc ?? query.get('is_asc');
+        const order = sortField ? (rawAscending === true || rawAscending === 1 ||
+            String(rawAscending).toLowerCase() === 'true' || String(rawAscending) === '1' ? 'asc' : 'desc') : '';
+
+        return {
+            eventType: 'PRODUCT_LIST',
+            roomId: currentContext.roomId || extractRoomId(url, data),
+            shopName: currentContext.shopName || '',
+            products,
+            page: {
+                current: Number(pageResult.page_no ?? pageResult.current ?? data.page_no ?? query.get('page_no') ?? 0),
+                size: Number(pageResult.page_size ?? pageResult.size ?? data.page_size ?? query.get('page_size') ?? products.length),
+                total: Number(pageResult.total ?? pageResult.total_cnt ?? data.total_cnt ?? products.length)
+            },
+            sort: { field: sortField, order },
+            indexSelected
+        };
+    },
+
+    // 5. 实时公屏弹幕解析
     parseComments: function (url, json, currentContext = {}) {
         if (!json || typeof json !== 'object') return null;
         const data = json.data;
@@ -147,7 +249,7 @@ const CompassParser = {
         };
     },
 
-    // 5. 弹幕聚类关键词解析
+    // 6. 弹幕聚类关键词解析
     parseCommentCluster: function (url, json, currentContext = {}) {
         if (!json || typeof json !== 'object') return null;
         const data = json.data;

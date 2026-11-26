@@ -94,12 +94,80 @@ test('dynamically expands to 4 or 5 rooms as new streams connect', () => {
     assert.equal(snapshot.summary.total_gmv_amount_yuan, 15000); // (1+2+3+4+5)*1000
 });
 
+test('stores the latest product list with explicit units and list metadata', () => {
+    const calc = new MetricsCalculator();
+    const selected = [
+        'pay_amt',
+        'product_show_ucnt',
+        'product_click_ucnt',
+        'product_show_click_ucnt_ratio',
+        'product_click_pay_ucnt_ratio',
+        'gpm'
+    ];
+
+    calc.handleEvent({
+        eventId: 'product_list_001',
+        roomId: 'room_products',
+        eventType: 'PRODUCT_LIST',
+        products: [{
+            productId: '3783122488695848970',
+            productName: 'chikoku雪球猫爪棉靴 热销款',
+            productImg: 'https://p26-item.ecombdimg.com/product.jpeg',
+            cartIndex: 1,
+            product_pay_amount_yuan: 1399.15,
+            product_show_users_count: 728,
+            product_click_users_count: 46,
+            product_show_click_users_ratio: 0.0632,
+            product_click_pay_users_ratio: 0.0166,
+            product_gpm_amount_yuan: 179.70
+        }],
+        page: { current: 0, size: 20, total: 42 },
+        sort: { field: 'pay_amt', order: 'desc' },
+        indexSelected: selected,
+        productCollectionStartedAtIso: '2026-11-25T01:00:00.000Z',
+        productDataObservedAtIso: '2026-11-25T01:00:01.000Z',
+        productReportIntervalMinutes: 60,
+        productReportSequence: 1
+    });
+
+    const room = calc.getDashboardSnapshot().rooms.find(item => item.roomId === 'room_products');
+    assert.ok(room);
+    assert.deepEqual(room.productList.page, { current: 0, size: 20, total: 42 });
+    assert.deepEqual(room.productList.sort, { field: 'pay_amt', order: 'desc' });
+    assert.deepEqual(room.productList.indexSelected, selected);
+    assert.deepEqual(room.productList.collection, {
+        startedAtIso: '2026-11-25T01:00:00.000Z',
+        observedAtIso: '2026-11-25T01:00:01.000Z',
+        intervalMinutes: 60,
+        reportSequence: 1
+    });
+    assert.equal(room.productList.products.length, 1);
+    assert.deepEqual(room.productList.products[0], {
+        productName: 'chikoku雪球猫爪棉靴 热销款',
+        productImg: 'https://p26-item.ecombdimg.com/product.jpeg',
+        cartIndex: 1,
+        product_pay_amount_yuan: 1399.15,
+        product_show_users_count: 728,
+        product_click_users_count: 46,
+        product_show_click_users_ratio: 0.0632,
+        product_click_pay_users_ratio: 0.0166,
+        product_gpm_amount_yuan: 179.70
+    });
+    assert.equal(calc.rooms.get('room_products').productList.products[0].productId, '3783122488695848970');
+});
+
 test('detects delayed updates and marks room offline after heartbeat timeout', () => {
     const calc = new MetricsCalculator({ heartbeatTimeoutMs: 5000 });
     const roomId = 'room_timeout_test';
 
     // 初始接收心跳
     calc.handleHeartbeat({ roomId: roomId, shopName: '超时测试直播间' });
+    calc.handleEvent({
+        eventId: 'timeout_live_status',
+        roomId,
+        eventType: 'ROOM_BASE_INFO',
+        liveStatusText: '正在直播'
+    });
     let snapshot = calc.getDashboardSnapshot();
     let room = snapshot.rooms.find(r => r.roomId === roomId);
     assert.equal(room.isOnline, true);
@@ -111,7 +179,19 @@ test('detects delayed updates and marks room offline after heartbeat timeout', (
     snapshot = calc.getDashboardSnapshot();
     room = snapshot.rooms.find(r => r.roomId === roomId);
     assert.equal(room.isOnline, false);
-    assert.equal(room.liveStatusText, '离线 未连接');
+    assert.equal(room.liveStatusText, '正在直播');
+});
+
+test('default heartbeat timeout tolerates background browser throttling', () => {
+    const calc = new MetricsCalculator();
+    const room = calc.handleHeartbeat({ roomId: 'background_room', shopName: '后台直播间' });
+    const lastHeartbeatTs = room.lastHeartbeatTs;
+
+    calc.checkTimeouts(lastHeartbeatTs + 60_000);
+    assert.equal(room.isOnline, true);
+
+    calc.checkTimeouts(lastHeartbeatTs + 90_001);
+    assert.equal(room.isOnline, false);
 });
 
 test('handles missing or malformed data gracefully without throwing', () => {
