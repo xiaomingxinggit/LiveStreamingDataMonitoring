@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.6.1
-// @description  实时监听拦截抖音电商罗盘大屏数据（基础信息、核心指标、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
+// @version      1.10.0
+// @description  实时监听抖音电商罗盘大屏数据（基础信息、核心指标、商品列表、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/live/shop*
 // @noframes
@@ -39,12 +39,13 @@
     // 1. 系统配置与运行时状态
     // =========================================================================
     const CONFIG = {
-        version: '1.6.1',
+        version: '1.10.0',
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
         heartbeatIntervalMs: 3000,
         retryDelayMs: 1000,
         maxBatchSize: 30,
         maxQueueSize: 500,
+        productReportIntervalMs: 60 * 60 * 1000,
         debug: true
     };
 
@@ -56,7 +57,16 @@
         sentCount: 0,
         latestResponses: new Map(),
         pendingQueue: [],
-        lastHeartbeatTs: 0
+        lastHeartbeatTs: 0,
+        productCollection: {
+            active: false,
+            startedAt: 0,
+            nextReportAt: 0,
+            awaitingInitial: false,
+            reportSequence: 0,
+            configurationReady: false,
+            latestEnvelope: null
+        }
     };
 
     function log(...args) {
@@ -78,6 +88,36 @@
             centsVal = Number(centsVal) || 0;
         }
         return Number((centsVal / 100).toFixed(2));
+    }
+
+    function unwrapMetricValue(value) {
+        let current = value;
+        for (let depth = 0; depth < 4 && current && typeof current === 'object'; depth++) {
+            if (Object.prototype.hasOwnProperty.call(current, 'value')) current = current.value;
+            else if (Object.prototype.hasOwnProperty.call(current, 'num_value')) current = current.num_value;
+            else break;
+        }
+        const numeric = Number(current);
+        return current !== '' && current !== null && current !== undefined && Number.isFinite(numeric) ? numeric : null;
+    }
+
+    function productMetricValue(row, name) {
+        const collections = [row.index_data, row.metric_data, row.metrics, row.data];
+        const direct = [row[name], ...collections.map(collection =>
+            collection && !Array.isArray(collection) ? collection[name] : undefined
+        )];
+        for (const candidate of direct) {
+            const value = unwrapMetricValue(candidate);
+            if (value !== null) return value;
+        }
+        for (const collection of collections.filter(Array.isArray)) {
+            const item = collection.find(entry =>
+                [entry?.index_name, entry?.field, entry?.key, entry?.name].includes(name)
+            );
+            const value = unwrapMetricValue(item);
+            if (value !== null) return value;
+        }
+        return null;
     }
 
     // =========================================================================
@@ -178,6 +218,62 @@
             };
         },
 
+        parseProductList: function (json, requestUrl) {
+            const data = json.data;
+            if (!data) return null;
+            const rows = data.data_result ?? data.product_list ?? data.products;
+            if (!Array.isArray(rows) || rows.length === 0) return null;
+
+            const ratio = value => value === null ? null : Number(value.toFixed(6));
+            const products = rows.map((row, index) => {
+                const info = row.product_info ?? row.product ?? row.base_info ?? {};
+                const payCents = productMetricValue(row, 'pay_amt');
+                const gpmCents = productMetricValue(row, 'gpm');
+                return {
+                    productId: String(row.product_id ?? row.id ?? info.product_id ?? info.id ?? ''),
+                    productName: sanitizeText(row.product_name ?? row.name ?? info.product_name ?? info.name ?? ''),
+                    productImg: row.product_img ?? row.image_url ?? row.img ??
+                        info.product_img ?? info.image_url ?? info.img ?? '',
+                    cartIndex: Number(row.shop_cart_num ?? row.cart_index ?? row.product_rank ??
+                        info.shop_cart_num ?? info.cart_index ?? info.product_rank ?? index + 1),
+                    product_pay_amount_yuan: payCents === null ? null : parsePriceCentsToYuan(payCents),
+                    product_show_users_count: productMetricValue(row, 'product_show_ucnt'),
+                    product_click_users_count: productMetricValue(row, 'product_click_ucnt'),
+                    product_show_click_users_ratio: ratio(productMetricValue(row, 'product_show_click_ucnt_ratio')),
+                    product_click_pay_users_ratio: ratio(productMetricValue(row, 'product_click_pay_ucnt_ratio')),
+                    product_gpm_amount_yuan: gpmCents === null ? null : parsePriceCentsToYuan(gpmCents)
+                };
+            });
+
+            const query = requestUrl?.searchParams;
+            const pageResult = data.page_result || {};
+            const headSelected = Array.isArray(data.data_head) ? data.data_head
+                .map(item => item?.index_name ?? item?.field ?? item?.key)
+                .filter(Boolean) : [];
+            const selectedValue = data.index_selected ??
+                (headSelected.length > 0 ? headSelected : query?.get('index_selected') ?? '');
+            const indexSelected = Array.isArray(selectedValue) ? selectedValue.map(String) :
+                String(selectedValue).split(',').map(item => item.trim()).filter(Boolean);
+            const sortField = String(data.sort_field ?? query?.get('sort_field') ?? '');
+            const rawAscending = data.is_asc ?? query?.get('is_asc');
+            const order = sortField ? (rawAscending === true || rawAscending === 1 ||
+                String(rawAscending).toLowerCase() === 'true' || String(rawAscending) === '1' ? 'asc' : 'desc') : '';
+
+            return {
+                eventType: 'PRODUCT_LIST',
+                roomId,
+                shopName: state.shopName,
+                products,
+                page: {
+                    current: Number(pageResult.page_no ?? pageResult.current ?? data.page_no ?? query?.get('page_no') ?? 0),
+                    size: Number(pageResult.page_size ?? pageResult.size ?? data.page_size ?? query?.get('page_size') ?? products.length),
+                    total: Number(pageResult.total ?? pageResult.total_cnt ?? data.total_cnt ?? products.length)
+                },
+                sort: { field: sortField, order },
+                indexSelected
+            };
+        },
+
         parseComments: function (json) {
             const data = json.data;
             if (!data || !Array.isArray(data.comments) || data.comments.length === 0) return null;
@@ -220,6 +316,7 @@
     const captureRoutes = [
         { id: 'coreData', label: '核心指标', path: '/live_screen/core_data', parse: CompassParser.parseCoreData },
         { id: 'baseInfo', label: '直播间信息', path: '/live_screen/live_base_info', parse: CompassParser.parseLiveBaseInfo },
+        { id: 'productList', label: '商品列表', path: '/live_screen/product_list', parse: CompassParser.parseProductList },
         { id: 'product', label: '讲解商品', path: '/live_screen/product_explain_detail', parse: CompassParser.parseProductExplainDetail },
         { id: 'comments', label: '互动评论', path: '/live_screen/professional/comment', parse: CompassParser.parseComments },
         { id: 'commentCluster', label: '评论聚类', path: '/live_screen/comment_cluster', parse: CompassParser.parseCommentCluster }
@@ -228,7 +325,8 @@
 
     function processApiResponse(url, rawText, channel, readError = false) {
         if (!isActiveLivePage() || typeof url !== 'string') return;
-        const { pathname, searchParams } = new URL(url);
+        const requestUrl = new URL(url);
+        const { pathname, searchParams } = requestUrl;
         const path = pathname.replace(/\/$/, '');
         const route = captureRoutes.find(candidate => path.endsWith(candidate.path));
         if (!route) return;
@@ -266,7 +364,7 @@
                 return;
             }
 
-            const parsedPayload = json && typeof json === 'object' ? route.parse(json) : null;
+            const parsedPayload = json && typeof json === 'object' ? route.parse(json, requestUrl) : null;
             if (!parsedPayload) return;
 
             observation.status = 'parsed';
@@ -278,14 +376,94 @@
                 pageUrl: window.location.href,
                 ...parsedPayload
             };
-            log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${roomId}`);
-            enqueueEvent(envelope);
+            if (route.id === 'productList') {
+                handleProductListEnvelope(envelope);
+            } else {
+                log(`[捕获成功] ${parsedPayload.eventType} | 房间: ${roomId}`);
+                enqueueEvent(envelope);
+            }
         } catch (error) {
             observation.status = 'parseError';
             log('解析目标接口失败:', route.id, error.message);
         } finally {
             updateHud();
         }
+    }
+
+    const requiredProductFields = [
+        'pay_amt',
+        'product_show_ucnt',
+        'product_click_ucnt',
+        'product_show_click_ucnt_ratio',
+        'product_click_pay_ucnt_ratio',
+        'gpm'
+    ];
+
+    function completeProductPayload(payload) {
+        if (!payload || !Array.isArray(payload.products) || payload.products.length === 0) return false;
+        const selected = new Set(Array.isArray(payload.indexSelected) ? payload.indexSelected : []);
+        return requiredProductFields.every(field => selected.has(field));
+    }
+
+    function startProductCollectionCycle() {
+        const collection = state.productCollection;
+        collection.latestEnvelope = null;
+        if (collection.active) return false;
+        const now = Date.now();
+        collection.active = true;
+        collection.startedAt = now;
+        collection.nextReportAt = now + CONFIG.productReportIntervalMs;
+        collection.awaitingInitial = true;
+        collection.reportSequence = 0;
+        return true;
+    }
+
+    function updateProductReportStatus() {
+        const collection = state.productCollection;
+        if (!collection.active || !collection.configurationReady) return;
+        if (collection.awaitingInitial) {
+            setProductPresetStatus('ready', '已启动  等待首次商品接口');
+            return;
+        }
+        const minutes = Math.max(0, Math.ceil((collection.nextReportAt - Date.now()) / 60000));
+        setProductPresetStatus('ready', `已回传 ${collection.reportSequence} 次  下次约 ${minutes} 分钟`);
+    }
+
+    function publishProductReport(envelope) {
+        const collection = state.productCollection;
+        const now = Date.now();
+        collection.reportSequence++;
+        collection.awaitingInitial = false;
+        while (collection.nextReportAt <= now) {
+            collection.nextReportAt += CONFIG.productReportIntervalMs;
+        }
+        enqueueEvent({
+            ...envelope,
+            eventId: `evt_${now}_${Math.random().toString(36).substring(2, 8)}`,
+            timestampIso: new Date(now).toISOString(),
+            productDataObservedAtIso: envelope.timestampIso,
+            productCollectionStartedAtIso: new Date(collection.startedAt).toISOString(),
+            productReportIntervalMinutes: 60,
+            productReportSequence: collection.reportSequence
+        });
+        log(`[商品回传] 第 ${collection.reportSequence} 次 | 房间: ${roomId}`);
+        updateProductReportStatus();
+    }
+
+    function flushDueProductReport() {
+        const collection = state.productCollection;
+        const envelope = collection.latestEnvelope;
+        if (!collection.active || !collection.configurationReady || !completeProductPayload(envelope)) return false;
+        if (!collection.awaitingInitial && Date.now() < collection.nextReportAt) return false;
+        publishProductReport(envelope);
+        return true;
+    }
+
+    function handleProductListEnvelope(envelope) {
+        if (completeProductPayload(envelope)) {
+            state.productCollection.latestEnvelope = envelope;
+        }
+        flushDueProductReport();
     }
 
     // =========================================================================
@@ -598,9 +776,6 @@
         { label: '观看-关注率(人数)', field: 'follow_anchor_watch_ucnt_ratio' },
         { label: '退款金额占比', field: 'real_refund_amt_ratio' }
     ];
-    const preservedMetricPriority = new Map([
-        ['实时在线人数', 4], ['直播间用户支付金额', 3], ['成交人数', 2], ['成交件数', 1]
-    ]);
     const minMetricCount = 6;
     const maxMetricCount = 12;
     const presetLabels = new Set(compassPreset.map(metric => metric.label));
@@ -627,6 +802,24 @@
         return [...dialog.querySelectorAll('button')].find(button => button.textContent.trim() === label);
     }
 
+    function invalidMetricCount(count) {
+        return count < minMetricCount || count > maxMetricCount;
+    }
+
+    function metricDialogProblem() {
+        const dialog = findMetricDialog();
+        if (!dialog) return '罗盘指标配置未打开';
+        const options = readMetricOptions(dialog);
+        if (!options.length) return '罗盘指标选项未加载';
+        if (compassPreset.some(metric => !options.some(item => item.label === metric.label))) {
+            return '当前罗盘缺少预设指标';
+        }
+        if (invalidMetricCount(options.filter(item => item.input.checked).length)) {
+            return '罗盘选中项须保持在 6 至 12 项';
+        }
+        return '';
+    }
+
     async function waitForPreset(check, timeoutMs, message) {
         const stepMs = 80;
         for (let elapsed = 0; elapsed <= timeoutMs; elapsed += stepMs) {
@@ -635,78 +828,253 @@
             if (result) return result;
             await new Promise(resolve => setTimeout(resolve, stepMs));
         }
-        throw new Error(message);
+        throw new Error(typeof message === 'function' ? message() : message);
     }
 
     async function applyCompassPreset() {
         if (!isActiveLivePage() || presetState === 'configuring' || presetState === 'waiting') return;
         setPresetStatus('configuring', '正在选择罗盘指标');
 
-        let dialog = findMetricDialog();
-        const openedBySentinel = !dialog;
+        let ownsOpenDialog = false;
         try {
-            if (openedBySentinel) {
+            if (!findMetricDialog()) {
                 const gear = await waitForPreset(
                     () => document.querySelector('[class*="topBtn--"] > [class*="config--"]'),
                     2400, '找不到罗盘核心指标设置'
                 );
-                gear.click();
-                dialog = await waitForPreset(findMetricDialog, 2400, '罗盘指标配置未打开');
+                if (!findMetricDialog()) {
+                    ownsOpenDialog = true;
+                    gear.click();
+                }
             }
 
-            const option = label => readMetricOptions(dialog).find(item => item.label === label)?.input;
-            const selectedOptions = () => readMetricOptions(dialog).filter(item => item.input.checked);
+            // 罗盘可能先渲染弹窗，再异步填入复选框及当前勾选状态。
+            setPresetStatus('configuring', '等待罗盘加载指标选项');
+            await waitForPreset(() => !metricDialogProblem(), 4800, metricDialogProblem);
+
+            const currentOptions = () => {
+                const dialog = findMetricDialog();
+                return dialog ? readMetricOptions(dialog) : [];
+            };
+            const option = label => currentOptions().find(item => item.label === label)?.input;
+            const selectedOptions = () => currentOptions().filter(item => item.input.checked);
             const checkSelectedCount = (selected) => {
-                if (selected.length < minMetricCount || selected.length > maxMetricCount) {
+                if (invalidMetricCount(selected.length)) {
                     throw new Error('罗盘选中项须保持在 6 至 12 项');
                 }
             };
-            checkSelectedCount(selectedOptions());
-            if (compassPreset.some(metric => !option(metric.label))) throw new Error('当前罗盘缺少预设指标');
-            const missing = compassPreset.filter(metric => !option(metric.label).checked);
+            const missing = compassPreset.filter(metric => !option(metric.label)?.checked);
+            let selectionChanged = false;
+            setPresetStatus('configuring', '正在选择罗盘指标');
 
             for (const { label } of missing) {
                 if (!isActiveLivePage()) throw new Error('房间已切换');
                 const selected = selectedOptions();
                 checkSelectedCount(selected);
-                if (option(label).disabled || selected.length === maxMetricCount) {
+                const target = option(label);
+                if (!target) throw new Error('罗盘指标选项已变化，请重试');
+                if (target.checked) continue;
+                if (target.disabled || selected.length === maxMetricCount) {
                     if (selected.length === minMetricCount) throw new Error('当前仅选中 6 项，所需指标暂不可选');
                     const replaceable = selected
-                        .filter(item => !item.input.disabled && item.label && !presetLabels.has(item.label))
-                        .sort((a, b) => (preservedMetricPriority.get(a.label) ?? 0) - (preservedMetricPriority.get(b.label) ?? 0));
+                        .filter(item => !item.input.disabled && item.label && !presetLabels.has(item.label));
                     const removed = replaceable[0];
                     if (!removed) throw new Error('罗盘没有可替换的指标位置');
                     removed.input.click();
+                    selectionChanged = true;
                     await waitForPreset(() => option(removed.label)?.checked === false && option(label)?.disabled === false,
                         1200, '罗盘未释放指标位置');
                 }
-                option(label).click();
+                const enabledTarget = option(label);
+                if (!enabledTarget || enabledTarget.disabled) throw new Error('罗盘指标暂不可选');
+                enabledTarget.click();
+                selectionChanged = true;
                 await waitForPreset(() => option(label)?.checked, 1200, '罗盘未勾选指标');
             }
 
+            // 项目只消费这八项。补齐目标项后清掉所有其他项，避免“包含八项”被误判成“仅有八项”。
+            for (const extra of selectedOptions().filter(item => item.label && !presetLabels.has(item.label))) {
+                const current = option(extra.label);
+                if (!current || current.disabled) throw new Error('罗盘多余指标暂不可取消');
+                current.click();
+                selectionChanged = true;
+                await waitForPreset(() => option(extra.label)?.checked === false, 1200, '罗盘未取消多余指标');
+            }
+
             if (!isActiveLivePage()) throw new Error('房间已切换');
-            checkSelectedCount(selectedOptions());
-            if (compassPreset.some(metric => !option(metric.label)?.checked)) throw new Error('罗盘八项指标未选齐');
-            const action = findDialogButton(dialog, missing.length || !openedBySentinel ? '确认' : '取消');
+            const finalSelection = selectedOptions();
+            if (finalSelection.length !== compassPreset.length ||
+                compassPreset.some(metric => !option(metric.label)?.checked) ||
+                finalSelection.some(item => !presetLabels.has(item.label))) {
+                throw new Error('罗盘指标未严格配置为目标八项');
+            }
+            const dialog = findMetricDialog();
+            const action = dialog && findDialogButton(dialog, selectionChanged || !ownsOpenDialog ? '确认' : '取消');
             if (!action || action.disabled) throw new Error('罗盘指标配置暂时无法提交');
 
             const previousResponse = state.latestResponses.get('coreData');
-            setPresetStatus('waiting', '已选八项，等待罗盘返回');
+            setPresetStatus('waiting', '已选定八项，等待罗盘返回');
             action.click();
             await waitForPreset(() => !findMetricDialog(), 2400, '罗盘指标配置未关闭');
-            dialog = null;
+            ownsOpenDialog = false;
 
             await waitForPreset(() => {
                 const response = state.latestResponses.get('coreData');
                 return response && response !== previousResponse && response.status === 'parsed' &&
                     compassPreset.every(metric => Number.isFinite(response.payload?.[metric.field]));
             }, 16000, '等待八项指标超时，可重新配置');
-            setPresetStatus('ready', '已收到八项指标');
+            setPresetStatus('ready', '八项指标配置完成');
         } catch (error) {
-            if (openedBySentinel && dialog && isActiveLivePage() && findMetricDialog() === dialog) {
-                findDialogButton(dialog, '取消')?.click();
+            if (ownsOpenDialog && isActiveLivePage()) {
+                const dialog = findMetricDialog();
+                if (dialog) findDialogButton(dialog, '取消')?.click();
             }
             setPresetStatus('error', sanitizeText(error.message) || '罗盘指标配置失败');
+        }
+    }
+
+    const productPreset = [
+        { label: '累计用户支付金额', field: 'pay_amt' },
+        { label: '商品曝光人数', field: 'product_show_ucnt' },
+        { label: '商品点击人数', field: 'product_click_ucnt' },
+        { label: '曝光-点击转化率', field: 'product_show_click_ucnt_ratio' },
+        { label: '点击-成交转化率', field: 'product_click_pay_ucnt_ratio' },
+        { label: '商品千次曝光成交', field: 'gpm' }
+    ];
+    const productPresetLabels = new Set(productPreset.map(metric => metric.label));
+    let productPresetState = 'idle';
+    let productPresetMessage = '等待配置';
+
+    function setProductPresetStatus(status, message) {
+        productPresetState = status;
+        productPresetMessage = message;
+        updateHud();
+    }
+
+    function visibleElementByText(selector, label) {
+        return [...document.querySelectorAll(selector)].find(element =>
+            element.getClientRects().length > 0 && element.textContent.trim() === label
+        );
+    }
+
+    function findProductTab() {
+        return [...document.querySelectorAll('a[href="#product"], a[href$="#product"], [role="tab"]')]
+            .find(element => element.getAttribute('href')?.endsWith('#product') || element.textContent.includes('商品'));
+    }
+
+    function findProductPaymentHeader() {
+        return visibleElementByText('th, [role="columnheader"]', '累计用户支付金额');
+    }
+
+    async function applyProductPreset() {
+        if (!isActiveLivePage() || productPresetState === 'configuring') return;
+        startProductCollectionCycle();
+        state.productCollection.configurationReady = false;
+        setProductPresetStatus('configuring', '正在打开商品列表');
+
+        let ownsOpenDialog = false;
+        try {
+            const productTab = findProductTab();
+            if (!productTab) throw new Error('找不到罗盘商品列表');
+            const tabActive = window.location.hash === '#product' || productTab.getAttribute('aria-selected') === 'true';
+            if (!tabActive) productTab.click();
+
+            const configButton = await waitForPreset(
+                () => visibleElementByText('button', '配置列表'),
+                4000, '找不到商品配置列表按钮'
+            );
+            if (!findMetricDialog()) {
+                ownsOpenDialog = true;
+                configButton.click();
+            }
+
+            setProductPresetStatus('configuring', '等待商品指标选项');
+            await waitForPreset(() => {
+                const dialog = findMetricDialog();
+                const options = dialog ? readMetricOptions(dialog) : [];
+                return options.length > 0 && productPreset.every(metric =>
+                    options.some(item => item.label === metric.label)
+                );
+            }, 4800, '当前商品列表缺少所需指标');
+
+            const currentOptions = () => {
+                const dialog = findMetricDialog();
+                return dialog ? readMetricOptions(dialog) : [];
+            };
+            const option = label => currentOptions().find(item => item.label === label)?.input;
+            const selectedOptions = () => currentOptions().filter(item => item.input.checked);
+            let selectionChanged = false;
+            setProductPresetStatus('configuring', '正在选择六项商品指标');
+
+            for (const { label } of productPreset) {
+                if (option(label)?.checked) continue;
+                const selected = selectedOptions();
+                if (selected.length >= productPreset.length || option(label)?.disabled) {
+                    const removable = selected.find(item =>
+                        item.label && !productPresetLabels.has(item.label) && !item.input.disabled
+                    );
+                    if (!removable) throw new Error('商品列表没有可替换的指标位置');
+                    removable.input.click();
+                    selectionChanged = true;
+                    await waitForPreset(() => option(removable.label)?.checked === false && option(label)?.disabled === false,
+                        1200, '商品列表未释放指标位置');
+                }
+                const target = option(label);
+                if (!target || target.disabled) throw new Error('商品指标暂不可选');
+                target.click();
+                selectionChanged = true;
+                await waitForPreset(() => option(label)?.checked, 1200, '商品指标未勾选');
+            }
+
+            for (const extra of selectedOptions().filter(item => item.label && !productPresetLabels.has(item.label))) {
+                const current = option(extra.label);
+                if (!current || current.disabled) throw new Error('商品多余指标暂不可取消');
+                current.click();
+                selectionChanged = true;
+                await waitForPreset(() => option(extra.label)?.checked === false, 1200, '商品多余指标未取消');
+            }
+
+            const finalSelection = selectedOptions();
+            if (finalSelection.length !== productPreset.length ||
+                productPreset.some(metric => !option(metric.label)?.checked) ||
+                finalSelection.some(item => !productPresetLabels.has(item.label))) {
+                throw new Error('商品指标未严格配置为目标六项');
+            }
+
+            const dialog = findMetricDialog();
+            const action = dialog && findDialogButton(dialog, selectionChanged || !ownsOpenDialog ? '确认' : '取消');
+            if (!action || action.disabled) throw new Error('商品指标配置暂时无法提交');
+            action.click();
+            await waitForPreset(() => !findMetricDialog(), 2400, '商品指标配置未关闭');
+            ownsOpenDialog = false;
+
+            setProductPresetStatus('configuring', '正在设置支付金额倒序');
+            await waitForPreset(findProductPaymentHeader, 4000, '找不到累计用户支付金额表头');
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const header = findProductPaymentHeader();
+                if (!header) throw new Error('累计用户支付金额表头已变化');
+                const direction = header.getAttribute('aria-sort');
+                if (direction === 'descending') break;
+                header.click();
+                await waitForPreset(() => {
+                    const current = findProductPaymentHeader();
+                    return current && current.getAttribute('aria-sort') !== direction;
+                }, 1600, '商品列表排序状态未更新');
+            }
+            if (findProductPaymentHeader()?.getAttribute('aria-sort') !== 'descending') {
+                throw new Error('累计用户支付金额未设置为倒序');
+            }
+            state.productCollection.configurationReady = true;
+            setProductPresetStatus('ready', '六项商品指标  支付金额倒序');
+            flushDueProductReport();
+            updateProductReportStatus();
+        } catch (error) {
+            state.productCollection.configurationReady = false;
+            if (ownsOpenDialog && isActiveLivePage()) {
+                const dialog = findMetricDialog();
+                if (dialog) findDialogButton(dialog, '取消')?.click();
+            }
+            setProductPresetStatus('error', sanitizeText(error.message) || '商品指标配置失败');
         }
     }
 
@@ -808,6 +1176,7 @@
                     border-radius: 7px;
                     background: #0d1d24;
                 }
+                .preset + .preset { margin-top: -5px; }
                 .preset strong { display: block; font-size: 12px; }
                 .preset-status { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
                 .preset-status[data-state="ready"] { color: var(--mint); }
@@ -882,6 +1251,13 @@
                     </div>
                     <button class="start" id="douyin-sentinel-start" type="button">开始采集</button>
                 </div>
+                <div class="preset">
+                    <div>
+                        <strong>商品列表采集</strong>
+                        <span class="preset-status" id="douyin-sentinel-product-status" role="status">等待配置</span>
+                    </div>
+                    <button class="start" id="douyin-sentinel-product-start" type="button">开始商品采集</button>
+                </div>
                 <dl class="counters">
                     <div><dt>监听响应</dt><dd id="douyin-sentinel-response-count">0</dd></div>
                     <div><dt>成功解析</dt><dd id="douyin-sentinel-captured-count">0</dd></div>
@@ -910,6 +1286,8 @@
             room: find('room'),
             start: find('start'),
             presetStatus: find('preset-status'),
+            productStart: find('product-start'),
+            productStatus: find('product-status'),
             responseCount: find('response-count'),
             capturedCount: find('captured-count'),
             sentCount: find('sent-count'),
@@ -926,6 +1304,7 @@
 
         hud.toggle.addEventListener('click', () => setExpanded(hud.panel.hidden));
         hud.start.addEventListener('click', applyCompassPreset);
+        hud.productStart.addEventListener('click', applyProductPreset);
         root.addEventListener('keydown', (event) => {
             if (event.key === 'Escape' && !hud.panel.hidden) {
                 event.stopPropagation();
@@ -956,6 +1335,8 @@
                 return [payload.shopName, payload.liveStatusText, payload.liveStartTime].filter(Boolean).join('  ');
             case 'EXPLAINING_PRODUCT':
                 return payload.isExplaining ? payload.productName || '正在讲解' : '当前未讲解商品';
+            case 'PRODUCT_LIST':
+                return `${payload.products.length} 个商品  ${payload.sort.field === 'pay_amt' && payload.sort.order === 'desc' ? '累计支付金额倒序' : '等待支付金额倒序'}`;
             case 'LIVE_COMMENTS':
                 return `${payload.comments.length} 条评论`;
             case 'COMMENT_CLUSTER':
@@ -1025,6 +1406,12 @@
         if (hud.presetStatus.dataset.state !== presetState || hud.presetStatus.textContent !== presetMessage) {
             hud.presetStatus.dataset.state = presetState;
             hud.presetStatus.textContent = presetMessage;
+        }
+        hud.productStart.disabled = productPresetState === 'configuring';
+        hud.productStart.textContent = productPresetState === 'ready' ? '重新配置商品' : '开始商品采集';
+        if (hud.productStatus.dataset.state !== productPresetState || hud.productStatus.textContent !== productPresetMessage) {
+            hud.productStatus.dataset.state = productPresetState;
+            hud.productStatus.textContent = productPresetMessage;
         }
         const room = `房间 ${roomId}`;
         hud.room.textContent = sanitizeText([state.shopName, room].filter(Boolean).join('  '));

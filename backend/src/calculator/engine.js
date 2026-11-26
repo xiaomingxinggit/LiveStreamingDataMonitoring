@@ -74,6 +74,18 @@ class MetricsCalculator {
                     product_click_to_pay_ratio: 0
                 },
                 explainingProduct: null,
+                productList: {
+                    products: [],
+                    page: { current: 0, size: 0, total: 0 },
+                    sort: { field: '', order: '' },
+                    indexSelected: [],
+                    collection: {
+                        startedAtIso: '',
+                        observedAtIso: '',
+                        intervalMinutes: 60,
+                        reportSequence: 0
+                    }
+                },
                 recentComments: [],
                 metricHistory: [], // [{ timestamp, gmv_amount_yuan, online_viewers_count }]
                 velocity: {
@@ -126,6 +138,9 @@ class MetricsCalculator {
                 break;
             case 'EXPLAINING_PRODUCT':
                 this._applyProductExplain(room, event);
+                break;
+            case 'PRODUCT_LIST':
+                this._applyProductList(room, event);
                 break;
             case 'LIVE_COMMENTS':
                 this._applyComments(room, event);
@@ -245,6 +260,44 @@ class MetricsCalculator {
             product_stock_count: Number(event.product_stock_count || 0),
             recentFiveMinClickCount: Number(event.recentFiveMinClickCount || 0),
             clickTrend: Array.isArray(event.clickTrend) ? event.clickTrend : []
+        };
+    }
+
+    _applyProductList(room, event) {
+        const finiteNumber = (value, fallback = 0) => {
+            const numeric = Number(value);
+            return Number.isFinite(numeric) ? numeric : fallback;
+        };
+        const optionalNumber = value => value === null || value === undefined ? null : finiteNumber(value, null);
+        room.productList = {
+            products: Array.isArray(event.products) ? event.products.map(product => ({
+                productId: String(product.productId || ''),
+                productName: sanitizeText(product.productName || ''),
+                productImg: product.productImg || '',
+                cartIndex: finiteNumber(product.cartIndex),
+                product_pay_amount_yuan: optionalNumber(product.product_pay_amount_yuan),
+                product_show_users_count: optionalNumber(product.product_show_users_count),
+                product_click_users_count: optionalNumber(product.product_click_users_count),
+                product_show_click_users_ratio: optionalNumber(product.product_show_click_users_ratio),
+                product_click_pay_users_ratio: optionalNumber(product.product_click_pay_users_ratio),
+                product_gpm_amount_yuan: optionalNumber(product.product_gpm_amount_yuan)
+            })) : [],
+            page: {
+                current: finiteNumber(event.page?.current),
+                size: finiteNumber(event.page?.size),
+                total: finiteNumber(event.page?.total)
+            },
+            sort: {
+                field: String(event.sort?.field || ''),
+                order: ['asc', 'desc'].includes(event.sort?.order) ? event.sort.order : ''
+            },
+            indexSelected: Array.isArray(event.indexSelected) ? event.indexSelected.map(String) : [],
+            collection: {
+                startedAtIso: String(event.productCollectionStartedAtIso || ''),
+                observedAtIso: String(event.productDataObservedAtIso || event.timestampIso || ''),
+                intervalMinutes: finiteNumber(event.productReportIntervalMinutes, 60),
+                reportSequence: finiteNumber(event.productReportSequence)
+            }
         };
     }
 
