@@ -1,18 +1,89 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="sun">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>抖音直播重点指标监控表格</title>
     <style>
-        :root {
-            --bg-color: #0b0f19;
-            --card-bg: #131b2e;
-            --border-color: rgba(255, 255, 255, 0.08);
-            --gpm-color: #f59e0b;
-            --ratio-color: #10b981;
-            --text-main: #f3f4f6;
-            --text-muted: #9ca3af;
+        :root,
+        :root[data-theme="sun"],
+        [data-theme="sun"] {
+            /* Apple Design System / HIG Light Mode Tokens (默认 SUN 浅色模式) */
+            --bg-color: #f5f5f7;
+            --card-bg: #ffffff;
+            --header-bg: rgba(255, 255, 255, 0.85);
+            --border-color: rgba(0, 0, 0, 0.08);
+            --border-subtle: rgba(0, 0, 0, 0.04);
+            --table-head-bg: #fafafc;
+            --text-main: #1d1d1f;
+            --text-muted: #86868b;
+            --gpm-color: #b45309;
+            --ratio-color: #15803d;
+            --cost-color: #0369a1;
+            --accent-blue: #0071e3;
+            --accent-blue-subtle: rgba(0, 113, 227, 0.08);
+            --row-hover: rgba(0, 0, 0, 0.025);
+            --row-expanded-bg: rgba(0, 113, 227, 0.04);
+            --subtable-wrap-bg: #f5f5f7;
+            --subtable-card-bg: #ffffff;
+            --subtable-head-bg: #f8f8fa;
+            --cart-tag-bg: rgba(217, 119, 6, 0.08);
+            --cart-tag-border: rgba(217, 119, 6, 0.25);
+            --cart-tag-color: #b45309;
+            --pulse-bg: rgba(22, 163, 74, 0.08);
+            --pulse-border: rgba(22, 163, 74, 0.25);
+            --pulse-color: #15803d;
+            --btn-bg: rgba(0, 0, 0, 0.04);
+            --btn-border: rgba(0, 0, 0, 0.1);
+            --btn-color: #1d1d1f;
+            --seg-bg: rgba(0, 0, 0, 0.06);
+            --seg-active-bg: #ffffff;
+            --seg-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 0 1px rgba(0, 0, 0, 0.08);
+            --card-shadow: 0 2px 12px rgba(0, 0, 0, 0.04), 0 1px 3px rgba(0, 0, 0, 0.02);
+            --subtable-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+            --flash-bg: rgba(0, 113, 227, 0.12);
+            --toast-bg: #1d1d1f;
+            --toast-text: #f5f5f7;
+        }
+
+        :root[data-theme="dark"],
+        [data-theme="dark"] {
+            /* Apple Design System / HIG Dark Mode Tokens (DARK 暗黑模式) */
+            --bg-color: #000000;
+            --card-bg: #1c1c1e;
+            --header-bg: rgba(28, 28, 30, 0.85);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --border-subtle: rgba(255, 255, 255, 0.05);
+            --table-head-bg: #2c2c2e;
+            --text-main: #f5f5f7;
+            --text-muted: #98989d;
+            --gpm-color: #fbbf24;
+            --ratio-color: #34d399;
+            --cost-color: #38bdf8;
+            --accent-blue: #0a84ff;
+            --accent-blue-subtle: rgba(10, 132, 255, 0.12);
+            --row-hover: rgba(255, 255, 255, 0.035);
+            --row-expanded-bg: rgba(10, 132, 255, 0.08);
+            --subtable-wrap-bg: #141416;
+            --subtable-card-bg: #1c1c1e;
+            --subtable-head-bg: #262629;
+            --cart-tag-bg: rgba(245, 158, 11, 0.15);
+            --cart-tag-border: rgba(245, 158, 11, 0.3);
+            --cart-tag-color: #fbbf24;
+            --pulse-bg: rgba(16, 185, 129, 0.15);
+            --pulse-border: rgba(16, 185, 129, 0.3);
+            --pulse-color: #34d399;
+            --btn-bg: rgba(255, 255, 255, 0.08);
+            --btn-border: rgba(255, 255, 255, 0.12);
+            --btn-color: #f5f5f7;
+            --seg-bg: rgba(255, 255, 255, 0.08);
+            --seg-active-bg: #2c2c2e;
+            --seg-active-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+            --card-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            --subtable-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+            --flash-bg: rgba(10, 132, 255, 0.2);
+            --toast-bg: #2c2c2e;
+            --toast-text: #f5f5f7;
         }
 
         * {
@@ -24,24 +95,28 @@
         body {
             background-color: var(--bg-color);
             color: var(--text-main);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "SF Pro", "PingFang SC", "Helvetica Neue", "Microsoft YaHei", sans-serif;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
             overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+            transition: background-color 0.25s ease, color 0.25s ease;
         }
 
         header.top-bar {
-            background: rgba(19, 27, 46, 0.9);
-            backdrop-filter: blur(12px);
+            background: var(--header-bg);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
             border-bottom: 1px solid var(--border-color);
-            padding: 14px 28px;
+            padding: 12px 28px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             position: sticky;
             top: 0;
             z-index: 100;
+            transition: background-color 0.25s ease, border-color 0.25s ease;
         }
 
         .brand-title {
@@ -51,95 +126,127 @@
         }
 
         .brand-title h1 {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
+            color: var(--text-main);
+            letter-spacing: -0.2px;
         }
 
         .pulse-badge {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            background: rgba(16, 185, 129, 0.15);
-            color: #10b981;
+            background: var(--pulse-bg);
+            color: var(--pulse-color);
             padding: 3px 10px;
             border-radius: 999px;
             font-size: 11px;
             font-weight: 500;
-            border: 1px solid rgba(16, 185, 129, 0.3);
+            border: 1px solid var(--pulse-border);
         }
 
         .pulse-dot {
             width: 7px;
             height: 7px;
             border-radius: 50%;
-            background-color: #10b981;
-            animation: pulse-glow 1.8s infinite;
-        }
-
-        @keyframes pulse-glow {
-            0% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-            70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-            100% { transform: scale(0.9); opacity: 0.8; box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+            background-color: var(--pulse-color);
         }
 
         .room-counter {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-muted);
-            font-family: monospace;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            background: var(--btn-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            padding: 4px 10px;
         }
 
         .top-actions {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
+        }
+
+        /* Apple HIG 经典分段控制器 (Segmented Control) */
+        .theme-segmented-control {
+            display: inline-flex;
+            align-items: center;
+            background: var(--seg-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 2px;
+            gap: 2px;
+        }
+
+        .theme-seg-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+
+        .theme-seg-btn svg {
+            flex-shrink: 0;
+        }
+
+        .theme-seg-btn.active {
+            background: var(--seg-active-bg);
+            color: var(--text-main);
+            box-shadow: var(--seg-active-shadow);
         }
 
         .refresh-now-btn {
             min-width: 88px;
-            height: 32px;
+            height: 30px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            gap: 7px;
+            gap: 6px;
             padding: 0 12px;
-            border: 1px solid rgba(56, 189, 248, 0.38);
+            border: 1px solid var(--accent-blue);
             border-radius: 7px;
-            background: rgba(14, 116, 144, 0.16);
-            color: #7dd3fc;
+            background: var(--accent-blue-subtle);
+            color: var(--accent-blue);
             font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 0.2px;
+            font-weight: 600;
             cursor: pointer;
-            transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease, transform 0.18s ease;
+            transition: all 0.18s ease;
         }
 
         .refresh-now-btn:hover:not(:disabled) {
-            background: rgba(14, 165, 233, 0.24);
-            border-color: rgba(125, 211, 252, 0.7);
-            color: #e0f2fe;
-            transform: translateY(-1px);
+            background: var(--accent-blue);
+            color: #ffffff;
         }
 
         .refresh-now-btn:focus-visible {
-            outline: 2px solid rgba(125, 211, 252, 0.85);
+            outline: 2px solid var(--accent-blue);
             outline-offset: 2px;
         }
 
         .refresh-now-btn:disabled {
             cursor: wait;
-            opacity: 0.76;
+            opacity: 0.6;
         }
 
         .refresh-now-btn[data-state="success"] {
-            border-color: rgba(16, 185, 129, 0.5);
-            background: rgba(16, 185, 129, 0.14);
-            color: #6ee7b7;
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.12);
+            color: #10b981;
         }
 
         .refresh-now-btn[data-state="error"] {
-            border-color: rgba(248, 113, 113, 0.5);
-            background: rgba(239, 68, 68, 0.14);
-            color: #fca5a5;
+            border-color: #ef4444;
+            background: rgba(239, 68, 68, 0.12);
+            color: #ef4444;
         }
 
         .refresh-now-icon {
@@ -158,22 +265,22 @@
 
         .refresh-toast {
             position: fixed;
-            top: 84px;
+            top: 72px;
             right: 24px;
             z-index: 1200;
-            min-width: 210px;
+            min-width: 200px;
             max-width: min(360px, calc(100vw - 48px));
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 12px 14px;
-            border: 1px solid rgba(56, 189, 248, 0.42);
+            padding: 10px 14px;
+            border: 1px solid var(--border-color);
             border-radius: 8px;
-            background: rgba(8, 18, 35, 0.96);
-            color: #dbeafe;
-            box-shadow: 0 14px 40px rgba(0, 0, 0, 0.42);
+            background: var(--toast-bg);
+            color: var(--toast-text);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 500;
             transform: translateY(-8px);
             opacity: 0;
             pointer-events: none;
@@ -186,18 +293,18 @@
         }
 
         .refresh-toast[data-state="success"] {
-            border-color: rgba(16, 185, 129, 0.56);
-            color: #6ee7b7;
+            border-color: rgba(16, 185, 129, 0.4);
+            color: #10b981;
         }
 
         .refresh-toast[data-state="warning"] {
-            border-color: rgba(245, 158, 11, 0.58);
-            color: #fcd34d;
+            border-color: rgba(245, 158, 11, 0.4);
+            color: #f59e0b;
         }
 
         .refresh-toast[data-state="error"] {
-            border-color: rgba(248, 113, 113, 0.58);
-            color: #fca5a5;
+            border-color: rgba(239, 68, 68, 0.4);
+            color: #ef4444;
         }
 
         .refresh-toast-dot {
@@ -206,7 +313,6 @@
             flex: none;
             border-radius: 50%;
             background: currentColor;
-            box-shadow: 0 0 12px currentColor;
         }
 
         main.container {
@@ -222,7 +328,8 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             overflow-x: auto;
-            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
+            box-shadow: var(--card-shadow);
+            transition: background-color 0.25s ease, border-color 0.25s ease;
         }
 
         table.monitoring-table {
@@ -233,25 +340,20 @@
         }
 
         table.monitoring-table thead tr {
-            background: rgba(0, 0, 0, 0.4);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--table-head-bg);
+            border-bottom: 1px solid var(--border-color);
         }
 
         table.monitoring-table th {
-            padding: 14px 16px;
+            padding: 13px 16px;
             font-size: 12px;
             font-weight: 600;
-            color: #94a3b8;
-            letter-spacing: 0.4px;
+            color: var(--text-muted);
+            letter-spacing: -0.1px;
         }
 
-        table.monitoring-table tbody tr {
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            transition: background-color 0.25s ease;
-        }
-
-        table.monitoring-table tbody tr:hover {
-            background-color: rgba(255, 255, 255, 0.035);
+        table.monitoring-table > tbody > tr {
+            border-bottom: 1px solid var(--border-subtle);
         }
 
         table.monitoring-table td {
@@ -275,24 +377,22 @@
 
         .status-dot.online {
             background-color: #10b981;
-            box-shadow: 0 0 6px #10b981;
         }
 
         .status-dot.offline {
             background-color: #ef4444;
-            box-shadow: 0 0 6px #ef4444;
         }
 
         .room-name-text {
             font-size: 14px;
-            font-weight: 700;
-            color: #f3f4f6;
+            font-weight: 600;
+            color: var(--text-main);
         }
 
         .num-cell {
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-variant-numeric: tabular-nums;
-            font-weight: 700;
+            font-weight: 600;
         }
 
         .val-gpm {
@@ -306,16 +406,16 @@
         }
 
         .val-cost {
-            color: #f59e0b;
+            color: var(--cost-color);
         }
 
         .val-muted {
-            color: #6b7280;
+            color: var(--text-muted);
         }
 
         .val-time {
             font-size: 12px;
-            color: #94a3b8;
+            color: var(--text-muted);
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-variant-numeric: tabular-nums;
         }
@@ -325,30 +425,30 @@
         }
 
         @keyframes highlight-pulse {
-            0% { background-color: rgba(37, 99, 235, 0.22); }
+            0% { background-color: var(--flash-bg); }
             100% { background-color: transparent; }
         }
 
-        /* 展开子表格与主行交互样式 */
+        /* 展开子表格与主行交互样式 - Apple HIG 经典规范 */
         .main-row {
             cursor: pointer;
             border-left: 3px solid transparent;
-            transition: all 0.2s ease;
+            transition: border-left-color 0.2s ease;
         }
 
         .main-row:hover {
-            background-color: rgba(255, 255, 255, 0.035);
+            background-color: var(--row-hover);
         }
 
         .main-row.is-expanded {
-            background-color: rgba(30, 41, 59, 0.45);
-            border-left-color: #38bdf8;
+            background-color: var(--row-expanded-bg);
+            border-left-color: var(--accent-blue);
         }
 
         .expand-caret {
             display: inline-block;
             font-size: 10px;
-            color: #64748b;
+            color: var(--text-muted);
             margin-right: 2px;
             transition: transform 0.2s ease, color 0.2s ease;
             user-select: none;
@@ -357,12 +457,12 @@
 
         .main-row.is-expanded .expand-caret {
             transform: rotate(90deg);
-            color: #38bdf8;
+            color: var(--accent-blue);
         }
 
         .card-row {
-            background-color: rgba(11, 17, 32, 0.65);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            background-color: var(--subtable-wrap-bg);
+            border-bottom: 1px solid var(--border-color);
         }
 
         .card-row.hidden {
@@ -374,12 +474,12 @@
         }
 
         .subtable-container {
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(56, 189, 248, 0.2);
-            border-left: 3px solid #38bdf8;
+            background: var(--subtable-card-bg);
+            border: 1px solid var(--border-color);
+            border-left: 3px solid var(--accent-blue);
             border-radius: 8px;
             overflow: hidden;
-            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
+            box-shadow: var(--subtable-shadow);
         }
 
         table.product-subtable {
@@ -388,20 +488,69 @@
             font-size: 13px;
         }
 
+        table.product-subtable thead tr {
+            background: var(--subtable-head-bg);
+            border-bottom: 1px solid var(--border-color);
+        }
+
         table.product-subtable th {
-            background: rgba(0, 0, 0, 0.35);
-            padding: 8px 12px;
+            padding: 9px 12px;
             font-size: 11px;
             font-weight: 600;
-            color: #94a3b8;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-            letter-spacing: 0.3px;
+            color: var(--text-muted);
+            letter-spacing: -0.1px;
+        }
+
+        .product-sort-button {
+            display: inline-flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 4px;
+            width: 100%;
+            min-height: 22px;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: inherit;
+            font: inherit;
+            letter-spacing: inherit;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .product-sort-button:hover {
+            color: var(--text-main);
+        }
+
+        .product-sort-button.is-active {
+            color: var(--accent-blue);
+        }
+
+        .product-sort-button:focus-visible {
+            outline: 2px solid var(--accent-blue);
+            outline-offset: 2px;
+            border-radius: 4px;
+        }
+
+        .product-sort-indicator {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 12px;
+            flex: 0 0 12px;
+            font-size: 10px;
+            line-height: 1;
+            opacity: 0.35;
+        }
+
+        .product-sort-button.is-active .product-sort-indicator {
+            opacity: 1;
         }
 
         table.product-subtable td {
-            padding: 8px 12px;
+            padding: 9px 12px;
             vertical-align: middle;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.035);
+            border-bottom: 1px solid var(--border-subtle);
             font-size: 13px;
         }
 
@@ -409,51 +558,51 @@
             border-bottom: none;
         }
 
-        table.product-subtable tr:hover {
-            background: rgba(255, 255, 255, 0.035);
+        table.product-subtable > tbody > tr:hover {
+            background: var(--row-hover);
         }
 
         .prod-name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            color: #f1f5f9;
+            color: var(--text-main);
             font-weight: 500;
             max-width: 480px;
         }
 
         .cart-tag {
             font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-            font-weight: 700;
-            color: #fbbf24;
+            font-weight: 600;
+            color: var(--cart-tag-color);
             display: inline-flex;
             align-items: center;
             justify-content: center;
             min-width: 24px;
             height: 18px;
             padding: 0 4px;
-            background: rgba(245, 158, 11, 0.12);
-            border: 1px solid rgba(245, 158, 11, 0.28);
+            background: var(--cart-tag-bg);
+            border: 1px solid var(--cart-tag-border);
             border-radius: 4px;
             font-size: 11px;
         }
 
         .toggle-all-btn {
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.12);
-            color: #93c5fd;
+            background: var(--btn-bg);
+            border: 1px solid var(--btn-border);
+            color: var(--btn-color);
             padding: 5px 12px;
             font-size: 12px;
-            font-weight: 600;
-            border-radius: 6px;
+            font-weight: 500;
+            border-radius: 7px;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.18s ease;
         }
 
         .toggle-all-btn:hover {
-            background: rgba(59, 130, 246, 0.2);
+            background: var(--accent-blue);
             color: #ffffff;
-            border-color: #3b82f6;
+            border-color: var(--accent-blue);
         }
 
         .empty-view {
@@ -465,7 +614,7 @@
         .empty-view svg {
             width: 56px;
             height: 56px;
-            stroke: #4b5563;
+            stroke: var(--text-muted);
             margin-bottom: 12px;
         }
     </style>
@@ -482,6 +631,18 @@
         </div>
 
         <div class="top-actions">
+            <!-- Apple HIG 经典主题分段切换 (默认 SUN) -->
+            <div class="theme-segmented-control" role="group" aria-label="主题模式切换">
+                <button type="button" class="theme-seg-btn active" id="themeSunBtn" onclick="setTheme('sun')" aria-pressed="true" title="浅色模式 (SUN)">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+                    <span>SUN</span>
+                </button>
+                <button type="button" class="theme-seg-btn" id="themeDarkBtn" onclick="setTheme('dark')" aria-pressed="false" title="深色模式 (DARK)">
+                    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+                    <span>DARK</span>
+                </button>
+            </div>
+
             <button class="refresh-now-btn" id="refreshNowBtn" type="button" data-state="idle" onclick="requestImmediateRefresh()" aria-label="立即刷新全部直播间数据">
                 <svg class="refresh-now-icon" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M20 11a8 8 0 10-2.34 5.66M20 4v7h-7"/>
@@ -537,6 +698,36 @@
         const refreshNowLabel = document.getElementById('refreshNowLabel');
         const refreshToast = document.getElementById('refreshToast');
         const refreshToastText = document.getElementById('refreshToastText');
+
+        function setTheme(theme) {
+            const chosen = theme === 'dark' ? 'dark' : 'sun';
+            document.documentElement.setAttribute('data-theme', chosen);
+            try {
+                localStorage.setItem('douyin_monitoring_theme', chosen);
+            } catch (e) {}
+            const sunBtn = document.getElementById('themeSunBtn');
+            const darkBtn = document.getElementById('themeDarkBtn');
+            if (sunBtn && darkBtn) {
+                if (chosen === 'sun') {
+                    sunBtn.classList.add('active');
+                    sunBtn.setAttribute('aria-pressed', 'true');
+                    darkBtn.classList.remove('active');
+                    darkBtn.setAttribute('aria-pressed', 'false');
+                } else {
+                    darkBtn.classList.add('active');
+                    darkBtn.setAttribute('aria-pressed', 'true');
+                    sunBtn.classList.remove('active');
+                    sunBtn.setAttribute('aria-pressed', 'false');
+                }
+            }
+        }
+
+        // 默认 SUN (浅色主题)
+        let initialTheme = 'sun';
+        try {
+            initialTheme = localStorage.getItem('douyin_monitoring_theme') || 'sun';
+        } catch (e) {}
+        setTheme(initialTheme);
 
         const prevValues = {};
         let refreshResetTimer = null;
@@ -645,6 +836,107 @@
             return ts ? formatTime(ts) : '-';
         }
 
+        const DEFAULT_PRODUCT_SORT = Object.freeze({
+            key: 'product_pay_amount_yuan',
+            direction: 'desc'
+        });
+        const PRODUCT_SORT_FIELDS = new Set([
+            'product_pay_amount_yuan',
+            'product_show_users_count',
+            'product_click_users_count',
+            'product_show_click_users_ratio',
+            'product_click_pay_users_ratio',
+            'product_gpm_amount_yuan'
+        ]);
+        const productSortByRoom = new Map();
+        let latestRooms = [];
+
+        function getProductSort(roomId) {
+            return productSortByRoom.get(String(roomId)) || DEFAULT_PRODUCT_SORT;
+        }
+
+        function getNextProductSort(currentSort, key) {
+            return {
+                key,
+                direction: currentSort.key === key && currentSort.direction === 'desc'
+                    ? 'asc'
+                    : 'desc'
+            };
+        }
+
+        function toSortableNumber(value) {
+            if (value === null || value === undefined || value === '') return null;
+            const numericValue = Number(value);
+            return Number.isFinite(numericValue) ? numericValue : null;
+        }
+
+        function sortProducts(products, sortState = DEFAULT_PRODUCT_SORT) {
+            const source = Array.isArray(products) ? products : [];
+            const key = PRODUCT_SORT_FIELDS.has(sortState?.key)
+                ? sortState.key
+                : DEFAULT_PRODUCT_SORT.key;
+            const direction = sortState?.direction === 'asc' ? 'asc' : 'desc';
+
+            return source
+                .map((product, index) => ({
+                    product,
+                    index,
+                    value: toSortableNumber(product?.[key])
+                }))
+                .sort((left, right) => {
+                    if (left.value === null && right.value === null) return left.index - right.index;
+                    if (left.value === null) return 1;
+                    if (right.value === null) return -1;
+                    if (left.value === right.value) return left.index - right.index;
+                    return direction === 'asc'
+                        ? left.value - right.value
+                        : right.value - left.value;
+                })
+                .map(item => item.product);
+        }
+
+        function renderProductSortHeader(roomId, key, label) {
+            const sortState = getProductSort(roomId);
+            const isActive = sortState.key === key;
+            const isDescending = sortState.direction === 'desc';
+            const ariaSort = isActive ? (isDescending ? 'descending' : 'ascending') : 'none';
+            const indicator = isActive ? (isDescending ? '↓' : '↑') : '↕';
+            const currentState = isActive ? `当前${isDescending ? '倒序' : '升序'}` : '当前未排序';
+            const nextDirection = isActive && isDescending ? '升序' : '倒序';
+            const actionLabel = `${label}，${currentState}，点击按${nextDirection}排列`;
+
+            return `
+                <th style="text-align: right;" aria-sort="${ariaSort}">
+                    <button class="product-sort-button ${isActive ? 'is-active' : ''}"
+                            type="button"
+                            data-room-id="${encodeURIComponent(String(roomId))}"
+                            data-sort-key="${key}"
+                            aria-label="${actionLabel}"
+                            title="${actionLabel}">
+                        <span>${label}</span>
+                        <span class="product-sort-indicator" aria-hidden="true">${indicator}</span>
+                    </button>
+                </th>
+            `;
+        }
+
+        function setProductSort(roomId, key) {
+            if (!PRODUCT_SORT_FIELDS.has(key)) return;
+            const normalizedRoomId = String(roomId);
+            const nextSort = getNextProductSort(getProductSort(normalizedRoomId), key);
+            productSortByRoom.set(normalizedRoomId, nextSort);
+            updateTable(latestRooms);
+        }
+
+        tableBody.addEventListener('click', event => {
+            const sortButton = event.target.closest('.product-sort-button');
+            if (!sortButton) return;
+            event.preventDefault();
+            event.stopPropagation();
+            const roomId = decodeURIComponent(sortButton.dataset.roomId || '');
+            setProductSort(roomId, sortButton.dataset.sortKey || '');
+        });
+
         const expandedRooms = new Set();
         let allExpanded = false;
 
@@ -694,6 +986,7 @@
 
         function updateTable(rooms) {
             const list = rooms || [];
+            latestRooms = list;
             activeCountLabel.textContent = `当前监控: ${list.length} 个直播间`;
 
             if (list.length === 0) {
@@ -741,7 +1034,8 @@
                     }];
                 }
 
-                const productRowsHtml = products.length > 0 ? products.map((prod, pIdx) => {
+                const sortedProducts = sortProducts(products, getProductSort(room.roomId));
+                const productRowsHtml = sortedProducts.length > 0 ? sortedProducts.map((prod, pIdx) => {
                     const showCnt = prod.product_show_users_count !== null && prod.product_show_users_count !== undefined ? Number(prod.product_show_users_count).toLocaleString('zh-CN') : '-';
                     const clickCnt = prod.product_click_users_count !== null && prod.product_click_users_count !== undefined ? Number(prod.product_click_users_count).toLocaleString('zh-CN') : '-';
                     return `
@@ -818,12 +1112,12 @@
                                             <tr>
                                                 <th style="width: 54px; text-align: left;">序号</th>
                                                 <th style="min-width: 260px; text-align: left;">商品信息</th>
-                                                <th style="text-align: right;">累计用户支付金额</th>
-                                                <th style="text-align: right;">商品曝光人数</th>
-                                                <th style="text-align: right;">商品点击人数</th>
-                                                <th style="text-align: right;">曝光-点击转化率</th>
-                                                <th style="text-align: right;">点击-成交转化率</th>
-                                                <th style="text-align: right;">商品千次曝光成交</th>
+                                                ${renderProductSortHeader(room.roomId, 'product_pay_amount_yuan', '累计用户支付金额')}
+                                                ${renderProductSortHeader(room.roomId, 'product_show_users_count', '商品曝光人数')}
+                                                ${renderProductSortHeader(room.roomId, 'product_click_users_count', '商品点击人数')}
+                                                ${renderProductSortHeader(room.roomId, 'product_show_click_users_ratio', '曝光-点击转化率')}
+                                                ${renderProductSortHeader(room.roomId, 'product_click_pay_users_ratio', '点击-成交转化率')}
+                                                ${renderProductSortHeader(room.roomId, 'product_gpm_amount_yuan', '商品千次曝光成交')}
                                                 <th style="text-align: right; width: 90px;">更新时间</th>
                                             </tr>
                                         </thead>
