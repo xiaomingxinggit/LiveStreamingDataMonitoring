@@ -34,10 +34,15 @@ class LocalStore {
      * 保存最新多房间大盘快照
      */
     saveSnapshot(snapshot) {
+        const tempFile = `${this.snapshotsFile}.${process.pid}.tmp`;
         try {
-            fs.writeFileSync(this.snapshotsFile, JSON.stringify(snapshot, null, 2), 'utf8');
+            fs.writeFileSync(tempFile, JSON.stringify(snapshot, null, 2), 'utf8');
+            fs.renameSync(tempFile, this.snapshotsFile);
         } catch (err) {
             console.error('[LocalStore] 保存快照失败:', err);
+            try {
+                if (fs.existsSync(tempFile)) fs.unlinkSync(tempFile);
+            } catch {}
         }
     }
 
@@ -51,6 +56,40 @@ class LocalStore {
             return JSON.parse(raw);
         } catch {
             return null;
+        }
+    }
+
+    /**
+     * 首次升级没有快照时，从事件日志尾部恢复近期状态。
+     */
+    loadRecentEvents(maxBytes = 64 * 1024 * 1024) {
+        if (!fs.existsSync(this.eventsLogFile)) return [];
+        let fileHandle;
+        try {
+            const size = fs.statSync(this.eventsLogFile).size;
+            const start = Math.max(0, size - maxBytes);
+            const length = size - start;
+            const buffer = Buffer.alloc(length);
+            fileHandle = fs.openSync(this.eventsLogFile, 'r');
+            fs.readSync(fileHandle, buffer, 0, length, start);
+            let raw = buffer.toString('utf8');
+            if (start > 0) {
+                const firstLineEnd = raw.indexOf('\n');
+                raw = firstLineEnd >= 0 ? raw.slice(firstLineEnd + 1) : '';
+            }
+            const events = [];
+            for (const line of raw.split(/\r?\n/)) {
+                if (!line.trim()) continue;
+                try {
+                    events.push(JSON.parse(line));
+                } catch {}
+            }
+            return events;
+        } catch (err) {
+            console.error('[LocalStore] 读取事件日志失败:', err);
+            return [];
+        } finally {
+            if (fileHandle !== undefined) fs.closeSync(fileHandle);
         }
     }
 

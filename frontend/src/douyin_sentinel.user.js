@@ -1,15 +1,20 @@
 // ==UserScript==
 // @name         抖音电商罗盘大屏数据监控哨兵 (Douyin Live Sentinel)
 // @namespace    https://github.com/livestreaming-monitoring/sentinel
-// @version      1.10.0
+// @version      1.13.1
 // @description  实时监听抖音电商罗盘大屏数据（基础信息、核心指标、商品列表、讲解商品、弹幕互动），清洗后安全回传本地总控客户端
 // @author       LiveStreamingDataMonitoring
 // @match        https://compass.jinritemai.com/screen/live/shop*
 // @noframes
+// @resource     vueRuntimeJs https://cdn.jsdelivr.net/npm/vue@3.5.46/dist/vue.global.prod.js
+// @resource     elementPlusJs https://cdn.jsdelivr.net/npm/element-plus@2.14.8/dist/index.full.min.js
+// @resource     elementPlusCss https://cdn.jsdelivr.net/npm/element-plus@2.14.8/dist/index.css
 // @grant        unsafeWindow
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
 // @grant        GM_getValue
+// @grant        GM_getResourceText
+// @grant        GM_addStyle
 // @grant        GM_registerMenuCommand
 // @connect      127.0.0.1
 // @connect      localhost
@@ -39,7 +44,7 @@
     // 1. 系统配置与运行时状态
     // =========================================================================
     const CONFIG = {
-        version: '1.10.0',
+        version: '1.13.1',
         backendUrl: GM_getValue('backend_url', 'http://127.0.0.1:28888'),
         heartbeatIntervalMs: 3000,
         retryDelayMs: 1000,
@@ -51,13 +56,18 @@
 
     const state = {
         connected: false,
+        heartbeatInFlight: false,
         shopName: '',
         responseCount: 0,
         capturedCount: 0,
         sentCount: 0,
         latestResponses: new Map(),
+        latestParsedPayloads: new Map(),
         pendingQueue: [],
         lastHeartbeatTs: 0,
+        serverInstanceId: '',
+        refreshRequestId: '',
+        refreshRequestAckId: '',
         productCollection: {
             active: false,
             startedAt: 0,
@@ -81,6 +91,10 @@
     function sanitizeText(value) {
         if (typeof value !== 'string') return value || '';
         return value.replace(/\u00B7/g, ' ').trim();
+    }
+
+    function firstNonEmptyValue(...values) {
+        return values.find(value => value !== null && value !== undefined && String(value).trim() !== '') ?? '';
     }
 
     function parsePriceCentsToYuan(centsVal) {
@@ -173,6 +187,7 @@
                 eventType: 'CORE_METRICS',
                 roomId,
                 shopName: state.shopName,
+                indexSelected: items.map(item => String(item?.index_name || '')).filter(Boolean),
                 // 用户要求的 8 个指标 (显式单位)
                 gpm_amount_yuan: gpmCents !== null ? parsePriceCentsToYuan(gpmCents) : null,
                 watch_pay_ucnt_ratio: formatRatio(watchPayRatio),
@@ -231,11 +246,18 @@
                 const gpmCents = productMetricValue(row, 'gpm');
                 return {
                     productId: String(row.product_id ?? row.id ?? info.product_id ?? info.id ?? ''),
-                    productName: sanitizeText(row.product_name ?? row.name ?? info.product_name ?? info.name ?? ''),
-                    productImg: row.product_img ?? row.image_url ?? row.img ??
-                        info.product_img ?? info.image_url ?? info.img ?? '',
-                    cartIndex: Number(row.shop_cart_num ?? row.cart_index ?? row.product_rank ??
-                        info.shop_cart_num ?? info.cart_index ?? info.product_rank ?? index + 1),
+                    productName: sanitizeText(firstNonEmptyValue(
+                        row.product_name, row.name, row.title, row.product_title, row.goods_name,
+                        info.product_name, info.name, info.title, info.product_title, info.goods_name
+                    )),
+                    productImg: firstNonEmptyValue(
+                        row.product_img, row.image_url, row.image_uri, row.img,
+                        info.product_img, info.image_url, info.image_uri, info.img
+                    ),
+                    cartIndex: Number(firstNonEmptyValue(
+                        row.shop_cart_num, row.room_cart_num, row.cart_index, row.product_rank,
+                        info.shop_cart_num, info.room_cart_num, info.cart_index, info.product_rank, index + 1
+                    )),
                     product_pay_amount_yuan: payCents === null ? null : parsePriceCentsToYuan(payCents),
                     product_show_users_count: productMetricValue(row, 'product_show_ucnt'),
                     product_click_users_count: productMetricValue(row, 'product_click_ucnt'),
@@ -369,6 +391,7 @@
 
             observation.status = 'parsed';
             observation.payload = parsedPayload;
+            state.latestParsedPayloads.set(route.id, parsedPayload);
             const envelope = {
                 eventId: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
                 timestampIso: new Date().toISOString(),
@@ -407,7 +430,6 @@
 
     function startProductCollectionCycle() {
         const collection = state.productCollection;
-        collection.latestEnvelope = null;
         if (collection.active) return false;
         const now = Date.now();
         collection.active = true;
@@ -426,7 +448,7 @@
             return;
         }
         const minutes = Math.max(0, Math.ceil((collection.nextReportAt - Date.now()) / 60000));
-        setProductPresetStatus('ready', `已回传 ${collection.reportSequence} 次  下次约 ${minutes} 分钟`);
+        setProductPresetStatus('ready', `已回传 ${collection.reportSequence} 次  下次自动约 ${minutes} 分钟`);
     }
 
     function publishProductReport(envelope) {
@@ -444,7 +466,8 @@
             productDataObservedAtIso: envelope.timestampIso,
             productCollectionStartedAtIso: new Date(collection.startedAt).toISOString(),
             productReportIntervalMinutes: 60,
-            productReportSequence: collection.reportSequence
+            productReportSequence: collection.reportSequence,
+            productReportTrigger: 'automatic'
         });
         log(`[商品回传] 第 ${collection.reportSequence} 次 | 房间: ${roomId}`);
         updateProductReportStatus();
@@ -464,6 +487,53 @@
             state.productCollection.latestEnvelope = envelope;
         }
         flushDueProductReport();
+    }
+
+    function createReplayEnvelope(payload) {
+        const now = Date.now();
+        return {
+            eventId: `evt_${now}_${Math.random().toString(36).substring(2, 8)}`,
+            timestampIso: new Date(now).toISOString(),
+            sourceChannel: 'reconnect',
+            pageUrl: window.location.href,
+            ...payload
+        };
+    }
+
+    function replayLatestState(trigger = 'reconnect', refreshRequestId = '') {
+        const replayEvents = ['baseInfo', 'coreData', 'product']
+            .map(routeId => state.latestParsedPayloads.get(routeId))
+            .filter(Boolean)
+            .map(createReplayEnvelope);
+        const collection = state.productCollection;
+        if (collection.active && completeProductPayload(collection.latestEnvelope)) {
+            const now = Date.now();
+            replayEvents.push({
+                ...collection.latestEnvelope,
+                eventId: `evt_${now}_${Math.random().toString(36).substring(2, 8)}`,
+                timestampIso: new Date(now).toISOString(),
+                sourceChannel: 'reconnect',
+                productDataObservedAtIso: collection.latestEnvelope.timestampIso,
+                productCollectionStartedAtIso: new Date(collection.startedAt).toISOString(),
+                productReportIntervalMinutes: 60,
+                productReportSequence: collection.reportSequence,
+                productReportTrigger: trigger
+            });
+        }
+        for (const event of replayEvents) {
+            enqueueEvent(trigger === 'control_refresh' ? {
+                ...event,
+                sourceChannel: 'control_refresh',
+                controlRefreshRequestId: refreshRequestId
+            } : event);
+        }
+        if (trigger === 'control_refresh' && replayEvents.length === 0) {
+            state.refreshRequestAckId = refreshRequestId;
+        }
+        if (replayEvents.length > 0) {
+            const reason = trigger === 'control_refresh' ? '总控立即刷新' : '总控重启补发';
+            log(`[${reason}] ${replayEvents.length} 条最新数据 | 房间: ${roomId}`);
+        }
     }
 
     // =========================================================================
@@ -537,11 +607,24 @@
             '/api/stream/events',
             { events: batch },
             () => {
+                const completedRefreshIds = new Set(batch
+                    .map(event => event.controlRefreshRequestId)
+                    .filter(Boolean));
                 activeBatch = null;
                 state.sentCount += batch.length;
                 state.connected = true;
                 updateHud();
                 flushPendingEvents();
+                let refreshCompleted = false;
+                for (const requestId of completedRefreshIds) {
+                    const stillPending = activeBatch?.some(event => event.controlRefreshRequestId === requestId) ||
+                        state.pendingQueue.some(event => event.controlRefreshRequestId === requestId);
+                    if (!stillPending) {
+                        state.refreshRequestAckId = requestId;
+                        refreshCompleted = true;
+                    }
+                }
+                if (refreshCompleted) sendHeartbeat();
             },
             (error) => {
                 state.connected = false;
@@ -553,12 +636,14 @@
         );
     }
 
-    setInterval(() => {
+    function sendHeartbeat() {
         if (!isActiveLivePage()) {
             updateHud();
             return;
         }
+        if (state.heartbeatInFlight) return;
 
+        state.heartbeatInFlight = true;
         sendToBackend(
             '/api/sentinel/heartbeat',
             {
@@ -567,19 +652,39 @@
                 shopName: state.shopName || '',
                 capturedCount: state.capturedCount,
                 sentCount: state.sentCount,
+                refreshRequestAckId: state.refreshRequestAckId,
                 timestampIso: new Date().toISOString()
             },
-            () => {
+            (responseText) => {
+                state.heartbeatInFlight = false;
+                let response = {};
+                try {
+                    response = JSON.parse(responseText || '{}');
+                } catch {}
+                let nextServerInstanceId = '';
+                nextServerInstanceId = String(response.serverInstanceId || '');
+                const nextRefreshRequestId = String(response.refreshRequestId || '');
+                const serverRestarted = Boolean(state.serverInstanceId && nextServerInstanceId &&
+                    state.serverInstanceId !== nextServerInstanceId);
+                const refreshRequested = Boolean(nextRefreshRequestId &&
+                    nextRefreshRequestId !== state.refreshRequestId);
+                if (nextServerInstanceId) state.serverInstanceId = nextServerInstanceId;
+                if (nextRefreshRequestId) state.refreshRequestId = nextRefreshRequestId;
                 state.connected = true;
                 state.lastHeartbeatTs = Date.now();
                 updateHud();
+                if (refreshRequested) replayLatestState('control_refresh', nextRefreshRequestId);
+                else if (serverRestarted) replayLatestState('reconnect');
             },
             () => {
+                state.heartbeatInFlight = false;
                 state.connected = false;
                 updateHud();
             }
         );
-    }, CONFIG.heartbeatIntervalMs);
+    }
+
+    setInterval(sendHeartbeat, CONFIG.heartbeatIntervalMs);
 
     // =========================================================================
     // 6. 页面网络响应监听
@@ -767,14 +872,14 @@
     // 7. 使用罗盘原生配置应用八项指标
     // =========================================================================
     const compassPreset = [
-        { label: '千次观看用户支付金额', field: 'gpm_amount_yuan' },
-        { label: '观看-成交率(人数)', field: 'watch_pay_ucnt_ratio' },
-        { label: '人均观看时长', field: 'avg_watch_duration_seconds' },
-        { label: '投放消耗(店铺绑定)', field: 'ad_cost_yuan' },
-        { label: '成交老粉占比', field: 'old_fans_pay_ucnt_ratio' },
-        { label: '观看-互动率(人数)', field: 'interact_watch_ucnt_ratio' },
-        { label: '观看-关注率(人数)', field: 'follow_anchor_watch_ucnt_ratio' },
-        { label: '退款金额占比', field: 'real_refund_amt_ratio' }
+        { label: '千次观看用户支付金额', field: 'gpm_amount_yuan', indexName: 'gpm' },
+        { label: '观看-成交率(人数)', field: 'watch_pay_ucnt_ratio', indexName: 'watch_pay_ucnt_ratio' },
+        { label: '人均观看时长', field: 'avg_watch_duration_seconds', indexName: 'avg_watch_duration' },
+        { label: '投放消耗(店铺绑定)', field: 'ad_cost_yuan', indexName: 'stat_cost' },
+        { label: '成交老粉占比', field: 'old_fans_pay_ucnt_ratio', indexName: 'old_fans_pay_ucnt_ratio' },
+        { label: '观看-互动率(人数)', field: 'interact_watch_ucnt_ratio', indexName: 'interact_watch_ucnt_ratio' },
+        { label: '观看-关注率(人数)', field: 'follow_anchor_watch_ucnt_ratio', indexName: 'follow_anchor_watch_ucnt_ratio' },
+        { label: '退款金额占比', field: 'real_refund_amt_ratio', indexName: 'real_refund_amt_ratio' }
     ];
     const minMetricCount = 6;
     const maxMetricCount = 12;
@@ -806,6 +911,20 @@
         return count < minMetricCount || count > maxMetricCount;
     }
 
+    function hasExactIndexSelection(payload, requiredFields) {
+        const selected = Array.isArray(payload?.indexSelected) ? payload.indexSelected.map(String) : [];
+        const required = new Set(requiredFields);
+        return selected.length === required.size && selected.every(field => required.has(field));
+    }
+
+    function hasCurrentCompassPreset() {
+        const latest = state.latestResponses.get('coreData');
+        return latest?.status === 'parsed' && hasExactIndexSelection(
+            latest.payload,
+            compassPreset.map(metric => metric.indexName)
+        );
+    }
+
     function metricDialogProblem() {
         const dialog = findMetricDialog();
         if (!dialog) return '罗盘指标配置未打开';
@@ -833,6 +952,11 @@
 
     async function applyCompassPreset() {
         if (!isActiveLivePage() || presetState === 'configuring' || presetState === 'waiting') return;
+        if (hasCurrentCompassPreset()) {
+            setPresetStatus('ready', '已检测到八项指标  无需重新配置');
+            if (typeof showHudMessage === 'function') showHudMessage('success', '已配置');
+            return;
+        }
         setPresetStatus('configuring', '正在选择罗盘指标');
 
         let ownsOpenDialog = false;
@@ -966,9 +1090,23 @@
         return visibleElementByText('th, [role="columnheader"]', '累计用户支付金额');
     }
 
+    function hasCurrentProductPreset() {
+        const envelope = state.productCollection.latestEnvelope;
+        return hasExactIndexSelection(envelope, productPreset.map(metric => metric.field)) &&
+            envelope?.sort?.field === 'pay_amt' && envelope?.sort?.order === 'desc';
+    }
+
     async function applyProductPreset() {
         if (!isActiveLivePage() || productPresetState === 'configuring') return;
         startProductCollectionCycle();
+        if (hasCurrentProductPreset()) {
+            state.productCollection.configurationReady = true;
+            setProductPresetStatus('ready', '已检测到六项指标  支付金额倒序');
+            if (typeof showHudMessage === 'function') showHudMessage('success', '已配置');
+            flushDueProductReport();
+            updateProductReportStatus();
+            return;
+        }
         state.productCollection.configurationReady = false;
         setProductPresetStatus('configuring', '正在打开商品列表');
 
@@ -1092,9 +1230,341 @@
     const panelMoney = new Intl.NumberFormat('zh-CN', { style: 'currency', currency: 'CNY' });
     const panelTime = new Intl.DateTimeFormat('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
     let hud = null;
+    let elementPlusStylesInstalled = false;
+    let fallbackToastTimer = null;
+    let uiFrameworkLoadAttempted = false;
+    let vueRuntime = null;
+    let elementPlusRuntime = null;
+
+    function loadUiFrameworks() {
+        if (globalThis.Vue && globalThis.ElementPlus) {
+            vueRuntime = globalThis.Vue;
+            elementPlusRuntime = globalThis.ElementPlus;
+            return true;
+        }
+        if (uiFrameworkLoadAttempted || typeof GM_getResourceText !== 'function') return false;
+        uiFrameworkLoadAttempted = true;
+
+        try {
+            const vueSource = GM_getResourceText('vueRuntimeJs');
+            const elementPlusSource = GM_getResourceText('elementPlusJs');
+            if (!vueSource || !elementPlusSource) throw new Error('框架资源未加载');
+
+            // Tampermonkey 在部分 Edge 环境中会隔离多个 @require 的全局变量。
+            // 将两个固定版本资源放进同一个沙箱全局执行，确保 Element Plus 能读取 globalThis.Vue。
+            (0, eval)(`${vueSource}\n;globalThis.Vue = Vue;\n${elementPlusSource}\n//# sourceURL=douyin-sentinel-ui-frameworks.js`);
+        } catch (error) {
+            log('Vue 面板依赖加载失败，使用原生面板:', error?.message || error);
+            return false;
+        }
+
+        vueRuntime = globalThis.Vue || null;
+        elementPlusRuntime = globalThis.ElementPlus || null;
+        return Boolean(vueRuntime && elementPlusRuntime);
+    }
+
+    function showHudMessage(type, message) {
+        const safeMessage = sanitizeText(String(message || ''));
+        if (!safeMessage) return;
+        const messageApi = elementPlusRuntime?.ElMessage || globalThis.ElementPlus?.ElMessage;
+        if (typeof messageApi === 'function') {
+            messageApi({ type, message: safeMessage, duration: 1800, showClose: false });
+            return;
+        }
+        if (!hud?.root) return;
+        let toast = hud.root.querySelector('#douyin-sentinel-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'douyin-sentinel-toast';
+            if (toast.style) Object.assign(toast.style, {
+                position: 'absolute',
+                right: '12px',
+                bottom: '52px',
+                zIndex: '5',
+                padding: '7px 11px',
+                border: '1px solid #3e6c68',
+                borderRadius: '6px',
+                background: '#102129',
+                color: '#76e2bb',
+                boxShadow: '0 10px 28px #030b12a6',
+                fontSize: '12px'
+            });
+            hud.root.appendChild(toast);
+        }
+        toast.textContent = safeMessage;
+        toast.hidden = false;
+        if (fallbackToastTimer) clearTimeout(fallbackToastTimer);
+        fallbackToastTimer = setTimeout(() => { toast.hidden = true; }, 1800);
+    }
 
     function createHud() {
         if (hud || !document.body || !isActiveLivePage()) return;
+        if (loadUiFrameworks()) {
+            try {
+                createVueHud();
+                return;
+            } catch (error) {
+                log('Vue 面板挂载失败，使用原生面板:', error?.message || error);
+                try { hud?.app?.unmount?.(); } catch {}
+                hud?.host?.remove?.();
+                hud = null;
+            }
+        }
+        createLegacyHud();
+    }
+
+    function createVueHud() {
+        const Vue = vueRuntime;
+        const ElementPlus = elementPlusRuntime;
+        if (!Vue || !ElementPlus) throw new Error('Vue 面板运行时不可用');
+        const host = document.createElement('div');
+        host.id = 'douyin-sentinel-hud';
+        const root = host.attachShadow({ mode: 'open' });
+        const elementPlusCss = typeof GM_getResourceText === 'function' ?
+            GM_getResourceText('elementPlusCss') : '';
+        if (elementPlusCss) {
+            const libraryStyle = document.createElement('style');
+            libraryStyle.textContent = elementPlusCss;
+            root.appendChild(libraryStyle);
+            if (!elementPlusStylesInstalled && typeof GM_addStyle === 'function') {
+                GM_addStyle(`${elementPlusCss}\n.el-message{background:#102129!important;border-color:#35565e!important;color:#e8f4f3!important}.el-message__content{color:inherit!important}`);
+                elementPlusStylesInstalled = true;
+            }
+        }
+        const style = document.createElement('style');
+        style.textContent = `
+            :host {
+                position: fixed;
+                right: 18px;
+                bottom: 18px;
+                z-index: 2147483647;
+                width: min(430px, calc(100vw - 36px));
+                font: 13px/1.5 "Microsoft YaHei", "PingFang SC", sans-serif;
+                color: #e8f4f3;
+                color-scheme: dark;
+                --el-color-primary: #76e2bb;
+                --el-color-primary-light-3: #91e9ca;
+                --el-color-primary-light-5: #aaf0d7;
+                --el-color-primary-dark-2: #55c49e;
+                --el-bg-color: #102129;
+                --el-bg-color-overlay: #142b35;
+                --el-fill-color-blank: #102129;
+                --el-fill-color-light: #142b35;
+                --el-border-color: #35565e;
+                --el-border-color-light: #2b424a;
+                --el-text-color-primary: #e8f4f3;
+                --el-text-color-regular: #c5d8d8;
+                --el-text-color-secondary: #a4bdc1;
+                --mint: #76e2bb;
+                --muted: #a4bdc1;
+                --line: #2b424a;
+                --mono: "Cascadia Mono", "Consolas", monospace;
+            }
+            *, *::before, *::after { box-sizing: border-box; }
+            :host([hidden]), [hidden] { display: none !important; }
+            .sentinel-frame { width: 100%; }
+            .sentinel-card {
+                max-height: min(620px, calc(100dvh - 88px));
+                overflow: hidden;
+                border: 1px solid #35565e;
+                border-top: 2px solid var(--mint);
+                border-radius: 12px;
+                background: linear-gradient(145deg, #102129 0%, #0d1d24 100%);
+                box-shadow: 0 18px 46px #030b12a6;
+            }
+            .sentinel-card > .el-card__body { padding: 0; }
+            .panel-head { padding: 15px 16px 12px; }
+            .head-line { display: flex; align-items: center; gap: 8px; }
+            h2 { margin: 0 auto 0 0; font-size: 17px; line-height: 1.35; letter-spacing: .03em; }
+            .room { margin: 7px 0 0; color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
+            .connection.el-tag { --el-tag-bg-color: #172d34; --el-tag-border-color: #35565e; }
+            .connection.connected.el-tag { --el-tag-text-color: var(--mint); --el-tag-border-color: #397761; }
+            .settings.el-button { padding-inline: 8px; color: #c5d8d8; }
+            .preset {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                margin: 0 16px 10px;
+                padding: 9px 10px;
+                border: 1px solid var(--line);
+                border-radius: 7px;
+                background: #0d1d24;
+            }
+            .preset strong { display: block; font-size: 12px; }
+            .preset-status { display: block; margin-top: 2px; color: var(--muted); font-size: 11px; }
+            .preset-status[data-state="ready"] { color: var(--mint); }
+            .preset-status[data-state="error"] { color: #edbf84; }
+            .start.el-button { min-width: 84px; font-weight: 700; }
+            .counters {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                margin: 2px 0 0;
+                border-block: 1px solid var(--line);
+                background: #0c1c24;
+            }
+            .counter { padding: 8px 10px 9px 16px; }
+            .counter + .counter { border-left: 1px solid var(--line); }
+            .counter-label { color: var(--muted); font-size: 11px; }
+            .counter-value { margin-top: 2px; font: 600 22px/1.2 var(--mono); font-variant-numeric: tabular-nums; }
+            .counter:first-child .counter-value { color: var(--mint); }
+            .body { min-height: 0; padding: 12px 16px 15px; }
+            .body h3 { margin: 0 0 8px; color: var(--muted); font-size: 11px; font-weight: 600; }
+            .empty { margin: 0; padding: 13px 12px; color: var(--muted); border: 1px dashed #38545b; border-radius: 7px; }
+            .event { border-bottom: 1px solid var(--line); }
+            .event > summary { cursor: pointer; list-style: none; padding: 8px 0; }
+            .event > summary::-webkit-details-marker { display: none; }
+            .row-line { display: flex; align-items: center; gap: 8px; }
+            .row-line > strong { margin-right: auto; font-size: 12px; }
+            .row-line::after { content: "+"; width: 10px; text-align: center; color: var(--muted); }
+            .event[open] .row-line::after { content: "−"; }
+            .meta { color: var(--muted); font: 11px/1.5 var(--mono); }
+            .status { color: #edbf84; font-size: 11px; }
+            .event[data-status="parsed"] .status { color: var(--mint); }
+            .data-summary { display: block; color: #d0e4e3; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+            .raw { margin: 0 0 11px; color: var(--muted); font-size: 11px; }
+            .raw > summary { cursor: pointer; }
+            pre {
+                max-height: 225px;
+                overflow: auto;
+                padding: 9px;
+                margin: 2px 0 8px;
+                border: 1px solid var(--line);
+                border-radius: 6px;
+                background: #0a171e;
+                color: #d8ede9;
+                font: 11px/1.6 var(--mono);
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+                user-select: text;
+            }
+            .toggle-row { display: flex; justify-content: flex-end; margin-top: 8px; }
+            #douyin-sentinel-toggle.el-button {
+                height: 38px;
+                padding-inline: 14px;
+                border-color: #35565e;
+                background: #10242c;
+                color: #e8f4f3;
+                box-shadow: 0 8px 26px #040d1255;
+            }
+            #douyin-sentinel-toggle.el-button:hover { background: #213c47; color: #f1fffc; }
+            .toggle-status { margin-left: 3px; color: var(--mint); font-size: 12px; }
+            .chevron { margin-left: 2px; color: var(--muted); font-size: 11px; transition: transform .18s ease; }
+            [aria-expanded="true"] .chevron { transform: rotate(180deg); }
+        `;
+        root.appendChild(style);
+        const mountNode = document.createElement('div');
+        mountNode.id = 'douyin-sentinel-vue-root';
+        root.appendChild(mountNode);
+
+        const model = Vue.reactive({
+            active: true,
+            expanded: false,
+            connected: false,
+            roomText: `房间 ${roomId}`,
+            toggleStatus: '等待响应',
+            presetState: 'idle',
+            presetMessage: '等待开始',
+            productPresetState: 'idle',
+            productPresetMessage: '等待配置',
+            responseCount: 0,
+            capturedCount: 0,
+            sentCount: 0,
+            rows: []
+        });
+        const component = {
+            setup() {
+                const togglePanel = () => {
+                    model.expanded = !model.expanded;
+                    updateHud();
+                };
+                const openSettings = () => {
+                    const newUrl = prompt('设置本地总控服务地址', CONFIG.backendUrl);
+                    if (newUrl && newUrl.trim()) {
+                        CONFIG.backendUrl = newUrl.trim();
+                        GM_setValue('backend_url', CONFIG.backendUrl);
+                        showHudMessage('success', `已更新总控地址为 ${CONFIG.backendUrl}`);
+                    }
+                };
+                return {
+                    model,
+                    togglePanel,
+                    openSettings,
+                    applyCompassPreset,
+                    applyProductPreset
+                };
+            },
+            template: `
+                <div class="sentinel-frame" v-show="model.active">
+                    <el-card v-show="model.expanded" class="sentinel-card" id="douyin-sentinel-panel" shadow="never" aria-labelledby="douyin-sentinel-title">
+                        <header class="panel-head">
+                            <div class="head-line">
+                                <h2 id="douyin-sentinel-title">罗盘控制面板</h2>
+                                <el-tag class="connection" :class="{ connected: model.connected }" size="small" effect="plain" id="douyin-sentinel-connection">{{ model.connected ? '总控已连接' : '等待总控连接' }}</el-tag>
+                                <el-button class="settings" id="douyin-sentinel-settings" size="small" text @click="openSettings">总控设置</el-button>
+                            </div>
+                            <p class="room" id="douyin-sentinel-room">{{ model.roomText }}</p>
+                        </header>
+                        <div class="preset">
+                            <div>
+                                <strong>核心指标预设</strong>
+                                <span class="preset-status" id="douyin-sentinel-preset-status" role="status" :data-state="model.presetState">{{ model.presetMessage }}</span>
+                            </div>
+                            <el-button class="start" id="douyin-sentinel-start" type="primary" size="small" :loading="model.presetState === 'configuring'" :disabled="model.presetState === 'waiting'" @click="applyCompassPreset">{{ model.presetState === 'ready' ? '重新配置' : '开始采集' }}</el-button>
+                        </div>
+                        <div class="preset">
+                            <div>
+                                <strong>商品列表采集</strong>
+                                <span class="preset-status" id="douyin-sentinel-product-status" role="status" :data-state="model.productPresetState">{{ model.productPresetMessage }}</span>
+                            </div>
+                            <el-button class="start" id="douyin-sentinel-product-start" type="primary" size="small" :loading="model.productPresetState === 'configuring'" @click="applyProductPreset">{{ model.productPresetState === 'ready' ? '重新配置商品' : '开始商品采集' }}</el-button>
+                        </div>
+                        <div class="counters">
+                            <div class="counter"><div class="counter-label">监听响应</div><div class="counter-value" id="douyin-sentinel-response-count">{{ model.responseCount }}</div></div>
+                            <div class="counter"><div class="counter-label">成功解析</div><div class="counter-value" id="douyin-sentinel-captured-count">{{ model.capturedCount }}</div></div>
+                            <div class="counter"><div class="counter-label">已回传</div><div class="counter-value" id="douyin-sentinel-sent-count">{{ model.sentCount }}</div></div>
+                        </div>
+                        <el-scrollbar max-height="300px">
+                            <div class="body">
+                                <h3>各接口最新响应</h3>
+                                <div id="douyin-sentinel-events">
+                                    <p v-if="model.rows.length === 0" class="empty" id="douyin-sentinel-empty">等待罗盘页面返回目标接口数据</p>
+                                    <details v-for="row in model.rows" :key="row.id" class="event" :data-route="row.id" :data-status="row.status">
+                                        <summary>
+                                            <span class="row-line"><strong>{{ row.label }}</strong><span class="meta">{{ row.meta }}</span><span class="status">{{ row.statusText }}</span></span>
+                                            <span v-show="row.hasPayload" class="data-summary">{{ row.summary }}</span>
+                                        </summary>
+                                        <pre v-show="row.hasPayload" class="parsed" aria-label="解析数据">{{ row.parsedText }}</pre>
+                                        <details v-show="row.hasPreview" class="raw"><summary>{{ row.rawLabel }}</summary><pre>{{ row.rawPreview }}</pre></details>
+                                    </details>
+                                </div>
+                            </div>
+                        </el-scrollbar>
+                    </el-card>
+                    <div class="toggle-row">
+                        <el-button id="douyin-sentinel-toggle" type="default" :aria-expanded="String(model.expanded)" aria-controls="douyin-sentinel-panel" @click="togglePanel">
+                            <strong>罗盘哨兵</strong><span class="toggle-status" id="douyin-sentinel-toggle-status">{{ model.toggleStatus }}</span><span class="chevron" aria-hidden="true">⌃</span>
+                        </el-button>
+                    </div>
+                </div>
+            `
+        };
+        const app = Vue.createApp(component);
+        app.use(ElementPlus);
+        app.mount(mountNode);
+        hud = { host, root, model, app, vue: true };
+        root.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && model.expanded) {
+                event.stopPropagation();
+                model.expanded = false;
+                Vue.nextTick(() => root.querySelector('#douyin-sentinel-toggle')?.focus());
+            }
+        });
+        document.body.appendChild(host);
+        updateHud();
+    }
+
+    function createLegacyHud() {
 
         const host = document.createElement('div');
         host.id = 'douyin-sentinel-hud';
@@ -1279,6 +1749,7 @@
         const find = name => root.querySelector(`#douyin-sentinel-${name}`);
         hud = {
             host,
+            root,
             panel: find('panel'),
             toggle: find('toggle'),
             toggleStatus: find('toggle-status'),
@@ -1395,6 +1866,42 @@
         if (!hud) return;
         hud.host.hidden = !isActiveLivePage();
         if (hud.host.hidden) return;
+
+        if (hud.vue) {
+            const model = hud.model;
+            model.active = true;
+            model.toggleStatus = state.responseCount > 0 ? `响应 ${state.responseCount}` : '等待响应';
+            if (!model.expanded) return;
+            model.connected = state.connected;
+            model.presetState = presetState;
+            model.presetMessage = presetMessage;
+            model.productPresetState = productPresetState;
+            model.productPresetMessage = productPresetMessage;
+            model.roomText = sanitizeText([state.shopName, `房间 ${roomId}`].filter(Boolean).join('  '));
+            model.responseCount = state.responseCount;
+            model.capturedCount = state.capturedCount;
+            model.sentCount = state.sentCount;
+            model.rows = captureRoutes.flatMap(route => {
+                const observation = state.latestResponses.get(route.id);
+                if (!observation) return [];
+                const channel = observation.channel === 'fetch' ? 'Fetch' : 'XHR';
+                const payload = observation.payload;
+                return [{
+                    id: route.id,
+                    label: route.label,
+                    status: observation.status,
+                    meta: `${panelTime.format(observation.observedAt)}  ${channel}`,
+                    statusText: [captureStatus[observation.status], observation.responseCode].filter(Boolean).join(' '),
+                    hasPayload: Boolean(payload),
+                    summary: payload ? sanitizeText(describePayload(payload)) : '',
+                    parsedText: payload ? sanitizeText(JSON.stringify(payload, null, 2)) : '',
+                    hasPreview: Boolean(observation.preview),
+                    rawLabel: observation.truncated ? '原始响应（前 12,000 字符）' : '原始响应',
+                    rawPreview: sanitizeText(observation.preview)
+                }];
+            });
+            return;
+        }
 
         hud.toggleStatus.textContent = state.responseCount > 0 ? `响应 ${state.responseCount}` : '等待响应';
         if (hud.panel.hidden) return;

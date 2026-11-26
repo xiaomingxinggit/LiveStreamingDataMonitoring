@@ -5,13 +5,19 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const scriptPath = path.resolve(__dirname, '../src/douyin_sentinel.user.js');
-const script = new vm.Script(fs.readFileSync(scriptPath, 'utf8'), { filename: scriptPath });
+const scriptSource = fs.readFileSync(scriptPath, 'utf8');
+const script = new vm.Script(scriptSource, { filename: scriptPath });
 const roomId = '1234567890123456789';
 const otherRoomId = '1234567890123456790';
 const compassOrigin = 'https://compass.jinritemai.com';
 const shopScreenUrl = `${compassOrigin}/screen/live/shop`;
 const pageUrl = `${shopScreenUrl}?live_room_id=${roomId}`;
 const metricsUrl = new URL(`/compass_api/shop/live/live_screen/core_data?room_id=${roomId}`, pageUrl).href;
+const baseInfoUrl = new URL(`/compass_api/shop/live/live_screen/live_base_info?room_id=${roomId}`, pageUrl).href;
+const productExplainUrl = new URL(
+    `/compass_api/shop/live/live_screen/product_explain_detail?room_id=${roomId}`,
+    pageUrl
+).href;
 const productListUrl = new URL(
     `/compass_api/shop/live/live_screen/product_list?room_id=${roomId}` +
     '&page_no=0&page_size=20&sort_field=pay_amt&is_asc=false',
@@ -32,6 +38,32 @@ function metricsResponse(gmvCents = 12345) {
 
 const metrics = metricsResponse();
 
+function baseInfoResponse() {
+    return JSON.stringify({
+        data: {
+            nickname: 'chikoku官方旗舰店',
+            app_platform: '抖音',
+            is_ecom_room: true,
+            live_start_time: '2026-11-26 09:01:29',
+            live_status: 2
+        }
+    });
+}
+
+function productExplainResponse() {
+    return JSON.stringify({
+        data: {
+            product_id: '3783122488695848970',
+            product_name: 'chikoku雪球猫爪棉靴',
+            explaining: true,
+            pay_amt: { value: 139915 },
+            pay_combo_cnt: { value: 9 },
+            stock_cnt: { value: 728 },
+            click_data: { product_click_cnt: { value: 46 } }
+        }
+    });
+}
+
 function productListResponse(payCents = 139915) {
     const indexSelected = [
         'pay_amt',
@@ -47,9 +79,12 @@ function productListResponse(payCents = 139915) {
             data_head: indexSelected.map(index_name => ({ index_name })),
             data_result: [{
                 product_id: '3783122488695848970',
-                product_name: 'chikoku雪球猫爪棉靴\u00b7热销款',
-                product_img: 'https://p26-item.ecombdimg.com/product.jpeg',
-                product_rank: 1,
+                product_name: '',
+                title: 'chikoku雪球猫爪棉靴\u00b7热销款',
+                product_img: '',
+                image_uri: 'https://p26-item.ecombdimg.com/product.jpeg',
+                shop_cart_num: '',
+                room_cart_num: 1,
                 index_data: [
                     { index_name: 'pay_amt', value: { unit: 'price', value: payCents } },
                     { index_name: 'product_show_ucnt', value: { unit: 'number', value: 728 } },
@@ -163,7 +198,10 @@ function startSentinel({
     unsafeWindowAvailable = false,
     topLevel = true,
     pageFetch,
-    nativePicker
+    nativePicker,
+    heartbeatResponses = [],
+    deferHeartbeatResponses = false,
+    frameworkResources
 } = {}) {
     const intervals = new Map();
     const timeouts = new Map();
@@ -182,6 +220,8 @@ function startSentinel({
     const windowListeners = new Map();
     const eventRequests = [];
     const heartbeatRequests = [];
+    const queuedHeartbeatResponses = [...heartbeatResponses];
+    const pendingHeartbeatReplies = [];
     let responseBodyReads = 0;
 
     class MockXhr extends EventTarget {
@@ -305,12 +345,18 @@ function startSentinel({
         },
         clearTimeout: id => timeouts.delete(id),
         GM_getValue: (_key, fallback) => fallback,
+        ...(frameworkResources ? {
+            GM_getResourceText: name => frameworkResources[name] || ''
+        } : {}),
         GM_xmlhttpRequest({ url, data, onload }) {
             const route = new URL(url).pathname;
             const payload = JSON.parse(data);
             if (route === '/api/sentinel/heartbeat') {
                 heartbeatRequests.push(payload);
-                onload({ status: 200, responseText: '{"status":"ok"}' });
+                const response = queuedHeartbeatResponses.shift() || { status: 'ok' };
+                const reply = () => onload({ status: 200, responseText: JSON.stringify(response) });
+                if (deferHeartbeatResponses) pendingHeartbeatReplies.push(reply);
+                else reply();
                 return;
             }
             assert.equal(route, '/api/stream/events');
@@ -381,6 +427,11 @@ function startSentinel({
         },
         heartbeat() {
             intervals.get(3000)?.();
+        },
+        replyHeartbeat() {
+            const reply = pendingHeartbeatReplies.shift();
+            assert.ok(reply, 'Missing a pending heartbeat response');
+            reply();
         },
         advanceTime(milliseconds) {
             const end = now + milliseconds;
@@ -771,6 +822,66 @@ test('the capture panel exposes an independent product collection button', () =>
     assert.match(start.textContent, /商品/);
 });
 
+test('the userscript panel leaves immediate refresh to the controller', () => {
+    assert.doesNotMatch(scriptSource, /douyin-sentinel-product-refresh/);
+    assert.doesNotMatch(scriptSource, /立即刷新商品/);
+});
+
+test('the production userscript mounts its panel with pinned Vue and Element Plus resources', () => {
+    assert.match(scriptSource, /@resource\s+vueRuntimeJs\s+https:\/\/cdn\.jsdelivr\.net\/npm\/vue@3\.5\.46\/dist\/vue\.global\.prod\.js/);
+    assert.match(scriptSource, /@resource\s+elementPlusJs\s+https:\/\/cdn\.jsdelivr\.net\/npm\/element-plus@2\.14\.8\/dist\/index\.full\.min\.js/);
+    assert.match(scriptSource, /@resource\s+elementPlusCss\s+https:\/\/cdn\.jsdelivr\.net\/npm\/element-plus@2\.14\.8\/dist\/index\.css/);
+    assert.doesNotMatch(scriptSource, /@require\s+https:\/\/cdn\.jsdelivr\.net\/npm\/(?:vue|element-plus)@/);
+    assert.match(scriptSource, /globalThis\.Vue = Vue/);
+    assert.match(scriptSource, /const app = Vue\.createApp\(component\);/);
+    assert.match(scriptSource, /app\.use\(ElementPlus\);/);
+    assert.match(scriptSource, /function showHudMessage\(type, message\)/);
+});
+
+test('the userscript falls back to the native panel when framework resources fail', () => {
+    const sentinel = startSentinel({
+        frameworkResources: {
+            vueRuntimeJs: 'throw new Error("Vue resource failed")',
+            elementPlusJs: 'throw new Error("Element Plus resource failed")'
+        }
+    });
+
+    assert.equal(sentinel.hasHud, true);
+    assert.equal(sentinel.element('start').tagName, 'button');
+    assert.equal(sentinel.element('product-start').tagName, 'button');
+});
+
+test('Start skips the native core metric dialog when the latest response already has exactly eight required metrics', () => {
+    const nativePicker = createNativePicker();
+    const sentinel = startSentinel({ nativePicker });
+    sentinel.capture(presetMetricsResponse());
+    sentinel.eventRequests[0].reply();
+    sentinel.openPanel();
+
+    sentinel.element('start').dispatchEvent(new Event('click'));
+
+    assert.equal(sentinel.element('preset-status').dataset.state, 'ready');
+    assert.match(sentinel.element('preset-status').textContent, /无需重新配置/);
+    assert.deepEqual(nativePicker.actions, []);
+});
+
+test('Product collection skips its native dialog when six metrics and payment descending are already active', () => {
+    const nativePicker = createProductPicker();
+    const sentinel = startSentinel({ nativePicker });
+    sentinel.capture(productListResponse(), { requestUrl: productListUrl });
+    sentinel.openPanel();
+
+    sentinel.element('product-start').dispatchEvent(new Event('click'));
+
+    assert.equal(sentinel.element('product-status').dataset.state, 'ready');
+    assert.deepEqual(nativePicker.actions, []);
+    assert.equal(sentinel.eventRequests.length, 1, 'the first click reports the already valid product response');
+});
+
+test('preset short circuits show the configured success message', () => {
+    assert.equal((scriptSource.match(/showHudMessage\('success', '已配置'\)/g) || []).length, 2);
+});
+
 test('Product collection selects exactly six metrics and sorts cumulative payment descending', async () => {
     const nativePicker = createProductPicker();
     const sentinel = startSentinel({ nativePicker });
@@ -812,7 +923,7 @@ test('Start replaces a mixed twelve-metric selection with exactly the required e
     assert.deepEqual(nativePicker.selected, initialSelection);
     assert.equal(sentinel.element('preset-status').dataset.state, 'idle');
 
-    sentinel.capture(presetMetricsResponse());
+    sentinel.capture(metrics);
     assert.equal(sentinel.eventRequests.length, 1);
     sentinel.eventRequests[0].reply();
     assert.equal(sentinel.element('preset-status').dataset.state, 'idle');
@@ -1027,14 +1138,14 @@ test('product collection starts its hourly reporting clock on the first click wi
     sentinel.element('product-start').dispatchEvent(new Event('click'));
     const firstClickAt = sentinel.now;
     await waitForPreset(sentinel, () => sentinel.element('product-status').dataset.state === 'ready');
-    assert.equal(sentinel.eventRequests.length, 0, 'a response observed before configuration is not replayed');
-
-    sentinel.capture(productListResponse(110000), { requestUrl: productListUrl });
-    assert.equal(sentinel.eventRequests.length, 1, 'the first complete response after configuration is reported immediately');
-    assert.equal(sentinel.eventRequests[0].events[0].products[0].product_pay_amount_yuan, 1100);
+    assert.equal(sentinel.eventRequests.length, 1, 'the latest valid response is reported immediately without reopening configuration');
+    assert.equal(sentinel.eventRequests[0].events[0].products[0].product_pay_amount_yuan, 1000);
     assert.equal(sentinel.eventRequests[0].events[0].productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
     assert.equal(sentinel.eventRequests[0].events[0].productReportSequence, 1);
     sentinel.eventRequests[0].reply();
+
+    sentinel.capture(productListResponse(110000), { requestUrl: productListUrl });
+    assert.equal(sentinel.eventRequests.length, 1, 'new responses inside the first hour only refresh the cache');
 
     sentinel.advanceTime(firstClickAt + 30 * 60 * 1000 - sentinel.now);
     sentinel.capture(productListResponse(120000), { requestUrl: productListUrl });
@@ -1057,6 +1168,202 @@ test('product collection starts its hourly reporting clock on the first click wi
     assert.equal(sentinel.eventRequests[1].events[0].products[0].product_pay_amount_yuan, 1400);
     assert.equal(sentinel.eventRequests[1].events[0].productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
     assert.equal(sentinel.eventRequests[1].events[0].productReportSequence, 2);
+});
+
+test('a controller refresh command reports the latest cache without moving the original hourly boundary', async () => {
+    const nativePicker = createProductPicker({
+        initialSelection: productPresetLabels,
+        initialSort: 'descending'
+    });
+    const sentinel = startSentinel({
+        nativePicker,
+        heartbeatResponses: [
+            { status: 'ok', serverInstanceId: 'server-a', refreshRequestId: '' },
+            { status: 'ok', serverInstanceId: 'server-a', refreshRequestId: 'refresh-1' },
+            { status: 'ok', serverInstanceId: 'server-a', refreshRequestId: '' }
+        ]
+    });
+    sentinel.openPanel();
+    sentinel.heartbeat();
+
+    sentinel.element('product-start').dispatchEvent(new Event('click'));
+    const firstClickAt = sentinel.now;
+    await waitForPreset(sentinel, () => sentinel.element('product-status').dataset.state === 'ready');
+
+    sentinel.capture(productListResponse(110000), { requestUrl: productListUrl });
+    assert.equal(sentinel.eventRequests.length, 1);
+    sentinel.eventRequests[0].reply();
+
+    sentinel.advanceTime(firstClickAt + 30 * 60 * 1000 - sentinel.now);
+    sentinel.capture(productListResponse(120000), { requestUrl: productListUrl });
+    assert.equal(sentinel.eventRequests.length, 1);
+
+    sentinel.heartbeat();
+    assert.equal(sentinel.eventRequests.length, 2, 'controller refresh immediately reports the newest cached response');
+    const controlEvent = sentinel.eventRequests[1].events[0];
+    assert.equal(controlEvent.products[0].product_pay_amount_yuan, 1200);
+    assert.equal(controlEvent.productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
+    assert.equal(controlEvent.productReportSequence, 1);
+    assert.equal(controlEvent.productReportTrigger, 'control_refresh');
+    sentinel.heartbeat();
+    assert.equal(sentinel.heartbeatRequests.at(-1).refreshRequestAckId, '',
+        'the controller is not acknowledged before refreshed data reaches the backend');
+    sentinel.eventRequests[1].reply();
+    assert.equal(sentinel.heartbeatRequests.at(-1).refreshRequestAckId, 'refresh-1');
+
+    sentinel.advanceTime(firstClickAt + 60 * 60 * 1000 - sentinel.now - 1);
+    sentinel.capture(productListResponse(130000), { requestUrl: productListUrl });
+    assert.equal(sentinel.eventRequests.length, 2, 'controller refresh does not move the first automatic boundary');
+
+    sentinel.advanceTime(1);
+    sentinel.capture(productListResponse(140000), { requestUrl: productListUrl });
+    assert.equal(sentinel.eventRequests.length, 3);
+    const hourlyEvent = sentinel.eventRequests[2].events[0];
+    assert.equal(hourlyEvent.products[0].product_pay_amount_yuan, 1400);
+    assert.equal(hourlyEvent.productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
+    assert.equal(hourlyEvent.productReportSequence, 2);
+});
+
+test('a changed backend instance replays the latest room and product snapshots without moving the hourly boundary', async () => {
+    const nativePicker = createProductPicker({
+        initialSelection: productPresetLabels,
+        initialSort: 'descending'
+    });
+    const sentinel = startSentinel({
+        nativePicker,
+        heartbeatResponses: [
+            { status: 'ok', serverInstanceId: 'server-a' },
+            { status: 'ok', serverInstanceId: 'server-b' }
+        ]
+    });
+    sentinel.openPanel();
+
+    sentinel.heartbeat();
+    assert.equal(sentinel.eventRequests.length, 0, 'remembering the initial backend does not invent data');
+
+    sentinel.capture(baseInfoResponse(), { requestUrl: baseInfoUrl });
+    sentinel.eventRequests.at(-1).reply();
+    sentinel.capture(metricsResponse(11100));
+    sentinel.eventRequests.at(-1).reply();
+    sentinel.capture(productExplainResponse(), { requestUrl: productExplainUrl });
+    sentinel.eventRequests.at(-1).reply();
+
+    sentinel.element('product-start').dispatchEvent(new Event('click'));
+    const firstClickAt = sentinel.now;
+    await waitForPreset(sentinel, () => sentinel.element('product-status').dataset.state === 'ready');
+    sentinel.capture(productListResponse(110000), { requestUrl: productListUrl });
+    sentinel.eventRequests.at(-1).reply();
+
+    sentinel.advanceTime(firstClickAt + 30 * 60 * 1000 - sentinel.now);
+    sentinel.capture(metricsResponse(22200));
+    sentinel.eventRequests.at(-1).reply();
+    sentinel.capture(productListResponse(120000), { requestUrl: productListUrl });
+
+    const replayRequestStart = sentinel.eventRequests.length;
+    sentinel.heartbeat();
+    for (let index = replayRequestStart; index < sentinel.eventRequests.length; index++) {
+        sentinel.eventRequests[index].reply();
+    }
+    const replayedEvents = sentinel.eventRequests
+        .slice(replayRequestStart)
+        .flatMap(request => request.events);
+
+    assert.deepEqual(new Set(replayedEvents.map(event => event.eventType)), new Set([
+        'ROOM_BASE_INFO', 'CORE_METRICS', 'EXPLAINING_PRODUCT', 'PRODUCT_LIST'
+    ]));
+    assert.equal(replayedEvents.find(event => event.eventType === 'CORE_METRICS').gmv_amount_yuan, 222);
+    const replayedProduct = replayedEvents.find(event => event.eventType === 'PRODUCT_LIST');
+    assert.equal(replayedProduct.products[0].product_pay_amount_yuan, 1200);
+    assert.equal(replayedProduct.productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
+
+    const postReplayRequestStart = sentinel.eventRequests.length;
+    sentinel.advanceTime(firstClickAt + 60 * 60 * 1000 - sentinel.now);
+    sentinel.capture(productListResponse(130000), { requestUrl: productListUrl });
+    const boundaryEvents = sentinel.eventRequests
+        .slice(postReplayRequestStart)
+        .flatMap(request => request.events);
+    assert.equal(boundaryEvents.length, 1, 'the original T0 + 1H boundary remains due');
+    assert.equal(boundaryEvents[0].eventType, 'PRODUCT_LIST');
+    assert.equal(boundaryEvents[0].products[0].product_pay_amount_yuan, 1300);
+    assert.equal(boundaryEvents[0].productCollectionStartedAtIso, new Date(firstClickAt).toISOString());
+});
+
+test('heartbeat requests stay single-flight so an older response cannot overwrite a newer backend instance', () => {
+    const sentinel = startSentinel({
+        deferHeartbeatResponses: true,
+        heartbeatResponses: [
+            { status: 'ok', serverInstanceId: 'server-a' },
+            { status: 'ok', serverInstanceId: 'server-b' }
+        ]
+    });
+
+    sentinel.heartbeat();
+    sentinel.heartbeat();
+    assert.equal(sentinel.heartbeatRequests.length, 1, 'a pending heartbeat blocks another request');
+
+    sentinel.replyHeartbeat();
+    sentinel.heartbeat();
+    assert.equal(sentinel.heartbeatRequests.length, 2, 'the next heartbeat starts after the prior response settles');
+    sentinel.replyHeartbeat();
+});
+
+test('invalid observations do not replace the last valid payload used for restart replay', () => {
+    const sentinel = startSentinel({
+        heartbeatResponses: [
+            { status: 'ok', serverInstanceId: 'server-a' },
+            { status: 'ok', serverInstanceId: 'server-b' }
+        ]
+    });
+    sentinel.heartbeat();
+
+    sentinel.capture(metricsResponse(11100));
+    sentinel.eventRequests.at(-1).reply();
+    sentinel.capture('');
+    sentinel.capture('{not-json');
+
+    const replayRequestStart = sentinel.eventRequests.length;
+    sentinel.heartbeat();
+    const replayedEvents = sentinel.eventRequests
+        .slice(replayRequestStart)
+        .flatMap(request => request.events);
+    assert.equal(replayedEvents.length, 1);
+    assert.equal(replayedEvents[0].eventType, 'CORE_METRICS');
+    assert.equal(replayedEvents[0].gmv_amount_yuan, 111);
+});
+
+test('product restart replay keeps the last complete cache after reconfiguration is skipped', async () => {
+    const nativePicker = createProductPicker({
+        initialSelection: productPresetLabels,
+        initialSort: 'descending'
+    });
+    const sentinel = startSentinel({
+        nativePicker,
+        heartbeatResponses: [
+            { status: 'ok', serverInstanceId: 'server-a' },
+            { status: 'ok', serverInstanceId: 'server-b' }
+        ]
+    });
+    sentinel.openPanel();
+    sentinel.heartbeat();
+
+    sentinel.element('product-start').dispatchEvent(new Event('click'));
+    await waitForPreset(sentinel, () => sentinel.element('product-status').dataset.state === 'ready');
+    sentinel.capture(productListResponse(110000), { requestUrl: productListUrl });
+    sentinel.eventRequests.at(-1).reply();
+    sentinel.capture(productListResponse(120000), { requestUrl: productListUrl });
+
+    const actionCount = nativePicker.actions.length;
+    sentinel.element('product-start').dispatchEvent(new Event('click'));
+    assert.equal(sentinel.element('product-status').dataset.state, 'ready');
+    assert.equal(nativePicker.actions.length, actionCount, 'an already valid product configuration is not reopened');
+    const replayRequestStart = sentinel.eventRequests.length;
+    sentinel.heartbeat();
+    const replayedProduct = sentinel.eventRequests
+        .slice(replayRequestStart)
+        .flatMap(request => request.events)
+        .find(event => event.eventType === 'PRODUCT_LIST');
+    assert.ok(replayedProduct, 'the complete product cache is replayed during reconfiguration');
+    assert.equal(replayedProduct.products[0].product_pay_amount_yuan, 1200);
 });
 
 test('a metric captured on XHR load immediately starts an event request', () => {

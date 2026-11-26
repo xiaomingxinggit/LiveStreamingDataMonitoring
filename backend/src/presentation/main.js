@@ -14,13 +14,14 @@ let mainWindow = null;
 let tray = null;
 let collectorServer = null;
 
-const PORT = process.env.PORT || 28888;
+const PORT = parseInt(process.env.PORT || '28888', 10);
 const HOST = '127.0.0.1';
 
 function startBackendServer(callback) {
     collectorServer = new CollectorServer({
         port: PORT,
-        host: HOST
+        host: HOST,
+        dataDir: path.join(app.getPath('userData'), 'data')
     });
     collectorServer.start((err) => {
         if (err) {

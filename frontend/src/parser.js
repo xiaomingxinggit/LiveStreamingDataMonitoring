@@ -9,6 +9,10 @@ function sanitizeText(value) {
     return value.replace(/\u00B7/g, ' ').trim();
 }
 
+function firstNonEmptyValue(...values) {
+    return values.find(value => value !== null && value !== undefined && String(value).trim() !== '') ?? '';
+}
+
 function parsePriceCentsToYuan(centsVal) {
     if (typeof centsVal !== 'number') {
         centsVal = Number(centsVal) || 0;
@@ -177,11 +181,18 @@ const CompassParser = {
             const gpmCents = productMetricValue(row, 'gpm');
             return {
                 productId: String(row.product_id ?? row.id ?? info.product_id ?? info.id ?? ''),
-                productName: sanitizeText(row.product_name ?? row.name ?? info.product_name ?? info.name ?? ''),
-                productImg: row.product_img ?? row.image_url ?? row.img ??
-                    info.product_img ?? info.image_url ?? info.img ?? '',
-                cartIndex: Number(row.shop_cart_num ?? row.cart_index ?? row.product_rank ??
-                    info.shop_cart_num ?? info.cart_index ?? info.product_rank ?? index + 1),
+                productName: sanitizeText(firstNonEmptyValue(
+                    row.product_name, row.name, row.title, row.product_title, row.goods_name,
+                    info.product_name, info.name, info.title, info.product_title, info.goods_name
+                )),
+                productImg: firstNonEmptyValue(
+                    row.product_img, row.image_url, row.image_uri, row.img,
+                    info.product_img, info.image_url, info.image_uri, info.img
+                ),
+                cartIndex: Number(firstNonEmptyValue(
+                    row.shop_cart_num, row.room_cart_num, row.cart_index, row.product_rank,
+                    info.shop_cart_num, info.room_cart_num, info.cart_index, info.product_rank, index + 1
+                )),
                 product_pay_amount_yuan: payCents === null ? null : parsePriceCentsToYuan(payCents),
                 product_show_users_count: productMetricValue(row, 'product_show_ucnt'),
                 product_click_users_count: productMetricValue(row, 'product_click_ucnt'),

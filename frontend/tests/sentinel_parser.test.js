@@ -133,9 +133,12 @@ test('parseProductList extracts configured product metrics and keeps page and so
             data_result: [
                 {
                     product_id: '3783122488695848970',
-                    product_name: 'chikoku雪球猫爪棉靴·热销款',
-                    product_img: 'https://p26-item.ecombdimg.com/product-1.jpeg',
-                    product_rank: 1,
+                    product_name: '',
+                    title: 'chikoku雪球猫爪棉靴·热销款',
+                    product_img: '',
+                    image_uri: 'https://p26-item.ecombdimg.com/product-1.jpeg',
+                    shop_cart_num: '',
+                    room_cart_num: 1,
                     pay_amt: { unit: 'price', value: 139915 },
                     product_show_ucnt: { unit: 'number', value: 728 },
                     product_click_ucnt: { unit: 'number', value: 46 },

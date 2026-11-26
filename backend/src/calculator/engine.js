@@ -16,7 +16,7 @@ function sanitizeText(value) {
 
 class MetricsCalculator {
     constructor(options = {}) {
-        this.heartbeatTimeoutMs = options.heartbeatTimeoutMs || 15000; // 15秒无心跳判定离线
+        this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 90000; // 容忍 Chrome 后台计时器降频与短暂网络抖动
         this.historyWindowSize = options.historyWindowSize || 720; // 保持最多 1 小时 (按 5 秒采样可存 720 点)
         this.processedEventIds = new Set();
         this.maxProcessedCache = options.maxProcessedCache || 5000;
@@ -154,6 +154,54 @@ class MetricsCalculator {
         }
 
         return room;
+    }
+
+    /**
+     * 从本地持久化快照恢复房间数据。恢复后保持离线，等待哨兵新心跳确认在线。
+     */
+    restoreRooms(rooms) {
+        if (!Array.isArray(rooms)) return 0;
+        let restoredCount = 0;
+
+        for (const saved of rooms) {
+            if (!saved || !saved.roomId) continue;
+            const room = this.getOrCreateRoom(saved.roomId, saved.shopName);
+            room.shopName = sanitizeText(saved.shopName) || room.shopName;
+            room.liveStatusText = sanitizeText(saved.liveStatusText) || room.liveStatusText;
+            room.avatarUri = saved.avatarUri || room.avatarUri;
+            room.liveStartTime = saved.liveStartTime || room.liveStartTime;
+            room.latestMetrics = { ...room.latestMetrics, ...(saved.latestMetrics || {}) };
+            room.explainingProduct = saved.explainingProduct ? {
+                ...saved.explainingProduct,
+                productName: sanitizeText(saved.explainingProduct.productName || '')
+            } : null;
+
+            if (saved.productList && typeof saved.productList === 'object') {
+                room.productList = {
+                    ...room.productList,
+                    ...saved.productList,
+                    products: Array.isArray(saved.productList.products) ? saved.productList.products.map(product => ({
+                        ...product,
+                        productName: sanitizeText(product.productName || '')
+                    })) : [],
+                    page: { ...room.productList.page, ...(saved.productList.page || {}) },
+                    sort: { ...room.productList.sort, ...(saved.productList.sort || {}) },
+                    indexSelected: Array.isArray(saved.productList.indexSelected) ?
+                        saved.productList.indexSelected.map(String) : [],
+                    collection: { ...room.productList.collection, ...(saved.productList.collection || {}) }
+                };
+            }
+
+            room.recentComments = Array.isArray(saved.recentComments) ? saved.recentComments.slice(0, 50) : [];
+            room.metricHistory = Array.isArray(saved.metricHistory) ?
+                saved.metricHistory.slice(-this.historyWindowSize) : [];
+            room.velocity = { ...room.velocity, ...(saved.velocity || {}) };
+            room.isOnline = false;
+            room.lastHeartbeatTs = 0;
+            restoredCount++;
+        }
+
+        return restoredCount;
     }
 
     _applyBaseInfo(room, event) {
@@ -324,7 +372,6 @@ class MetricsCalculator {
             const timeSinceLastHeartbeat = currentTime - room.lastHeartbeatTs;
             if (timeSinceLastHeartbeat > this.heartbeatTimeoutMs) {
                 room.isOnline = false;
-                room.liveStatusText = '离线 未连接';
             }
         }
     }
@@ -352,6 +399,14 @@ class MetricsCalculator {
             totalAdCost += room.latestMetrics.ad_cost_yuan;
         }
 
+        const dashboardRooms = roomList.map(room => ({
+            ...room,
+            productList: {
+                ...room.productList,
+                products: room.productList.products.map(({ productId, ...product }) => product)
+            }
+        }));
+
         return {
             summary: {
                 total_rooms_count: roomList.length,
@@ -362,7 +417,7 @@ class MetricsCalculator {
                 total_ad_cost_yuan: Number(totalAdCost.toFixed(2)),
                 timestampIso: new Date().toISOString()
             },
-            rooms: roomList
+            rooms: dashboardRooms
         };
     }
 }
