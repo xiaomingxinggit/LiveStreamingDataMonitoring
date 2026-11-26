@@ -280,29 +280,13 @@
             background: rgba(255, 255, 255, 0.03);
         }
 
-        .prod-info-cell {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            max-width: 380px;
-        }
-
-        .prod-thumb {
-            width: 32px;
-            height: 32px;
-            border-radius: 4px;
-            object-fit: cover;
-            flex-shrink: 0;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            background: #1e293b;
-        }
-
         .prod-name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
             color: #e2e8f0;
             font-weight: 500;
+            max-width: 500px;
         }
 
         .cart-tag {
@@ -311,29 +295,6 @@
             color: #fbbf24;
             display: inline-block;
             min-width: 24px;
-        }
-
-        .badge-explaining {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            background: rgba(16, 185, 129, 0.16);
-            border: 1px solid rgba(16, 185, 129, 0.3);
-            color: #34d399;
-            padding: 1px 6px;
-            border-radius: 4px;
-            font-size: 11px;
-            font-weight: 600;
-            white-space: nowrap;
-            flex-shrink: 0;
-        }
-
-        .badge-explaining .dot {
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            background: #10b981;
-            box-shadow: 0 0 6px #10b981;
         }
 
         .toggle-all-btn {
@@ -541,22 +502,14 @@
                     }];
                 }
 
-                const explainingId = room.explainingProduct?.productId;
-                const isRoomExplaining = Boolean(room.explainingProduct?.isExplaining);
-
                 const productRowsHtml = products.length > 0 ? products.map((prod, pIdx) => {
-                    const isCurExplaining = Boolean(prod.isExplaining || (isRoomExplaining && prod.productId && prod.productId === explainingId));
                     const showCnt = prod.product_show_users_count !== null && prod.product_show_users_count !== undefined ? Number(prod.product_show_users_count).toLocaleString('zh-CN') : '-';
                     const clickCnt = prod.product_click_users_count !== null && prod.product_click_users_count !== undefined ? Number(prod.product_click_users_count).toLocaleString('zh-CN') : '-';
                     return `
                         <tr>
-                            <td><span class="cart-tag">#${prod.cartIndex || (pIdx + 1)}</span></td>
+                            <td><span class="cart-tag">${prod.cartIndex || (pIdx + 1)}</span></td>
                             <td>
-                                <div class="prod-info-cell">
-                                    ${prod.productImg ? `<img class="prod-thumb" src="${prod.productImg}" alt="图">` : '<div class="prod-thumb" style="display:flex;align-items:center;justify-content:center;color:#64748b;font-size:10px;">图</div>'}
-                                    ${isCurExplaining ? '<span class="badge-explaining"><span class="dot"></span>讲解中</span>' : ''}
-                                    <span class="prod-name" title="${prod.productName}">${prod.productName || '商品 ' + (prod.productId || '')}</span>
-                                </div>
+                                <div class="prod-name" title="${prod.productName}">${prod.productName || '商品 ' + (prod.productId || '')}</div>
                             </td>
                             <td><div class="num-cell" style="color:var(--gpm-color);">${formatCurrency(prod.product_pay_amount_yuan)}</div></td>
                             <td><div class="num-cell">${showCnt}</div></td>
@@ -568,7 +521,7 @@
                     `;
                 }).join('') : `
                     <tr>
-                        <td colspan="8" style="text-align:center;color:#94a3b8;padding:16px;">暂无商品数据 (主播未挂车或未触发商品采集)</td>
+                        <td colspan="8" style="text-align:center;color:#94a3b8;padding:14px;">暂无商品数据</td>
                     </tr>
                 `;
 
