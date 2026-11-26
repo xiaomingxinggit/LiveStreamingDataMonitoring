@@ -67,5 +67,12 @@ node backend/src/index.js
 ```
 启动后打开浏览器访问 `http://127.0.0.1:28888` 即可查看弹性作战大屏。
 
-### 3. 安装前端油猴哨兵
-将 `frontend/src/douyin_sentinel.user.js` 添加至油猴插件，在浏览器中打开罗盘大屏即可自动开始监听与同步。
+### 3. 安装与自动更新前端油猴哨兵
+- **首次安装**：
+  - 方式一（在线安装与绑定）：在浏览器中安装 Tampermonkey 插件后，直接访问脚本在线地址：
+    `https://raw.githubusercontent.com/xiaomingxinggit/LiveStreamingDataMonitoring/main/frontend/src/douyin_sentinel.user.js`
+    油猴会自动弹出安装确认界面，点击“安装”即可。
+  - 方式二（本地导入）：将本地 `frontend/src/douyin_sentinel.user.js` 代码内容完整复制粘贴至油猴“添加新脚本”编辑器中保存。
+- **自动更新机制**：
+  - 脚本已内置 `@updateURL` 与 `@downloadURL` 头部元数据。
+  - 当远程仓库 `main` 分支更新且 `@version` 版本号递增后，油猴插件会按设定周期（或在油猴菜单中点击“检查脚本更新”）自动拉取并静默/提示更新至最新版，无需手动重新复制代码。
