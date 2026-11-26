@@ -30,3 +30,14 @@ test('top bar exposes backend-controlled immediate refresh with visible request 
     assert.match(html, /setRefreshButtonState\('error', '刷新失败'\)/);
     assert.match(html, /setRefreshButtonState\('idle', '立即刷新'\)/);
 });
+
+test('product row hover does not animate the rebuilt outer card background', () => {
+    const html = fs.readFileSync(rendererPath, 'utf8');
+    const outerRowRule = html.match(/table\.monitoring-table > tbody > tr \{([^}]*)\}/s);
+
+    assert.ok(outerRowRule);
+    assert.doesNotMatch(outerRowRule[1], /transition/);
+    assert.doesNotMatch(html, /table\.monitoring-table tbody tr:hover/);
+    assert.match(html, /\.main-row \{[^}]*transition: border-left-color 0\.2s ease;/s);
+    assert.match(html, /table\.product-subtable > tbody > tr:hover/);
+});
