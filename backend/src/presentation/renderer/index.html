@@ -101,7 +101,7 @@
             border: 1px solid var(--border-color);
             border-radius: 12px;
             overflow-x: auto;
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5);
         }
 
         table.monitoring-table {
@@ -117,10 +117,10 @@
         }
 
         table.monitoring-table th {
-            padding: 14px 18px;
+            padding: 14px 16px;
             font-size: 12px;
             font-weight: 600;
-            color: #9ca3af;
+            color: #94a3b8;
             letter-spacing: 0.4px;
         }
 
@@ -130,11 +130,11 @@
         }
 
         table.monitoring-table tbody tr:hover {
-            background-color: rgba(255, 255, 255, 0.03);
+            background-color: rgba(255, 255, 255, 0.035);
         }
 
         table.monitoring-table td {
-            padding: 16px 18px;
+            padding: 14px 16px;
             vertical-align: middle;
             font-size: 14px;
         }
@@ -169,19 +169,19 @@
         }
 
         .num-cell {
-            font-family: monospace;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-variant-numeric: tabular-nums;
             font-weight: 700;
         }
 
         .val-gpm {
             color: var(--gpm-color);
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .val-watch-ratio {
             color: var(--ratio-color);
-            font-size: 16px;
+            font-size: 15px;
         }
 
         .val-cost {
@@ -194,9 +194,9 @@
 
         .val-time {
             font-size: 12px;
-            color: #9ca3af;
-            font-family: monospace;
-            text-align: right;
+            color: #94a3b8;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-variant-numeric: tabular-nums;
         }
 
         .flash-update {
@@ -208,13 +208,20 @@
             100% { background-color: transparent; }
         }
 
-        /* 展开卡片与行交互样式 */
+        /* 展开子表格与主行交互样式 */
         .main-row {
             cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .main-row:hover {
+            background-color: rgba(255, 255, 255, 0.035);
         }
 
         .main-row.is-expanded {
-            background-color: rgba(30, 41, 59, 0.4);
+            background-color: rgba(30, 41, 59, 0.45);
+            border-left-color: #38bdf8;
         }
 
         .expand-caret {
@@ -233,7 +240,7 @@
         }
 
         .card-row {
-            background-color: #111a2e;
+            background-color: rgba(11, 17, 32, 0.65);
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
@@ -242,17 +249,22 @@
         }
 
         .subtable-wrap {
-            padding: 8px 16px 14px 44px;
+            padding: 10px 18px 14px 28px;
+        }
+
+        .subtable-container {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid rgba(56, 189, 248, 0.2);
+            border-left: 3px solid #38bdf8;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.25);
         }
 
         table.product-subtable {
             width: 100%;
             border-collapse: collapse;
             font-size: 13px;
-            background: rgba(15, 23, 42, 0.6);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            border-radius: 6px;
-            overflow: hidden;
         }
 
         table.product-subtable th {
@@ -261,14 +273,14 @@
             font-size: 11px;
             font-weight: 600;
             color: #94a3b8;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            letter-spacing: 0.3px;
         }
 
         table.product-subtable td {
             padding: 8px 12px;
             vertical-align: middle;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.035);
             font-size: 13px;
         }
 
@@ -277,24 +289,32 @@
         }
 
         table.product-subtable tr:hover {
-            background: rgba(255, 255, 255, 0.03);
+            background: rgba(255, 255, 255, 0.035);
         }
 
         .prod-name {
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            color: #e2e8f0;
+            color: #f1f5f9;
             font-weight: 500;
-            max-width: 500px;
+            max-width: 480px;
         }
 
         .cart-tag {
-            font-family: "JetBrains Mono", monospace;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             font-weight: 700;
             color: #fbbf24;
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             min-width: 24px;
+            height: 18px;
+            padding: 0 4px;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.28);
+            border-radius: 4px;
+            font-size: 11px;
         }
 
         .toggle-all-btn {
@@ -351,16 +371,16 @@
             <table class="monitoring-table">
                 <thead>
                     <tr>
-                        <th>直播间</th>
-                        <th style="color:var(--gpm-color);">千次</th>
-                        <th style="color:var(--ratio-color);">观看成交率(人数)</th>
-                        <th>人均观看时长</th>
-                        <th>投放消耗</th>
-                        <th>成交老粉占比</th>
-                        <th>观看互动率(人数)</th>
-                        <th>观看关注率(人数)</th>
-                        <th>退款金额占比</th>
-                        <th style="text-align:right;">更新时间</th>
+                        <th style="padding-left: 20px;">直播间</th>
+                        <th style="text-align: right; color: var(--gpm-color);">千次</th>
+                        <th style="text-align: right; color: var(--ratio-color);">观看成交率(人数)</th>
+                        <th style="text-align: right;">人均观看时长</th>
+                        <th style="text-align: right;">投放消耗</th>
+                        <th style="text-align: right;">成交老粉占比</th>
+                        <th style="text-align: right;">观看互动率(人数)</th>
+                        <th style="text-align: right;">观看关注率(人数)</th>
+                        <th style="text-align: right;">退款金额占比</th>
+                        <th style="text-align: right; padding-right: 20px;">更新时间</th>
                     </tr>
                 </thead>
                 <tbody id="tableBody">
@@ -507,21 +527,22 @@
                     const clickCnt = prod.product_click_users_count !== null && prod.product_click_users_count !== undefined ? Number(prod.product_click_users_count).toLocaleString('zh-CN') : '-';
                     return `
                         <tr>
-                            <td><span class="cart-tag">${prod.cartIndex || (pIdx + 1)}</span></td>
+                            <td><span class="cart-tag">#${prod.cartIndex || (pIdx + 1)}</span></td>
                             <td>
                                 <div class="prod-name" title="${prod.productName}">${prod.productName || '商品 ' + (prod.productId || '')}</div>
                             </td>
-                            <td><div class="num-cell" style="color:var(--gpm-color);">${formatCurrency(prod.product_pay_amount_yuan)}</div></td>
-                            <td><div class="num-cell">${showCnt}</div></td>
-                            <td><div class="num-cell">${clickCnt}</div></td>
-                            <td><div class="num-cell" style="color:var(--ratio-color);">${formatPercent(prod.product_show_click_users_ratio)}</div></td>
-                            <td><div class="num-cell" style="color:var(--ratio-color);">${formatPercent(prod.product_click_pay_users_ratio)}</div></td>
-                            <td><div class="num-cell" style="color:var(--gpm-color);">${formatCurrency(prod.product_gpm_amount_yuan)}</div></td>
+                            <td style="text-align: right;"><div class="num-cell" style="color:var(--gpm-color);">${formatCurrency(prod.product_pay_amount_yuan)}</div></td>
+                            <td style="text-align: right;"><div class="num-cell">${showCnt}</div></td>
+                            <td style="text-align: right;"><div class="num-cell">${clickCnt}</div></td>
+                            <td style="text-align: right;"><div class="num-cell" style="color:var(--ratio-color);">${formatPercent(prod.product_show_click_users_ratio)}</div></td>
+                            <td style="text-align: right;"><div class="num-cell" style="color:var(--ratio-color);">${formatPercent(prod.product_click_pay_users_ratio)}</div></td>
+                            <td style="text-align: right;"><div class="num-cell" style="color:var(--gpm-color);">${formatCurrency(prod.product_gpm_amount_yuan)}</div></td>
+                            <td style="text-align: right;"><div class="val-time">${timeStr}</div></td>
                         </tr>
                     `;
                 }).join('') : `
                     <tr>
-                        <td colspan="8" style="text-align:center;color:#94a3b8;padding:14px;">暂无商品数据</td>
+                        <td colspan="9" style="text-align:center;color:#94a3b8;padding:14px;">暂无商品数据</td>
                     </tr>
                 `;
 
@@ -534,61 +555,64 @@
 
                 return `
                     <tr class="main-row ${hasChanged ? 'flash-update' : ''} ${isExpanded ? 'is-expanded' : ''}" id="row-${room.roomId}" data-room-id="${room.roomId}" onclick="toggleRoom('${room.roomId}')">
-                        <td>
+                        <td style="padding-left: 20px;">
                             <div class="room-cell">
                                 <span class="expand-caret">▶</span>
                                 <span class="status-dot ${isOnline ? 'online' : 'offline'}"></span>
                                 <div class="room-name-text">${room.shopName || room.roomId}</div>
                             </div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell val-gpm">${formatCurrency(gpm)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell val-watch-ratio">${formatPercent(watchPayRatio)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell ${avgDuration !== null ? '' : 'val-muted'}">${formatSeconds(avgDuration)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell val-cost">${formatCurrency(adCost)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell ${oldFansRatio !== null ? '' : 'val-muted'}">${formatPercent(oldFansRatio)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell ${interactRatio !== null ? '' : 'val-muted'}">${formatPercent(interactRatio)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell ${followRatio !== null ? '' : 'val-muted'}">${formatPercent(followRatio)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right;">
                             <div class="num-cell ${refundRatio !== null ? '' : 'val-muted'}">${formatPercent(refundRatio)}</div>
                         </td>
-                        <td>
+                        <td style="text-align: right; padding-right: 20px;">
                             <div class="val-time">${timeStr}</div>
                         </td>
                     </tr>
                     <tr class="card-row ${isExpanded ? '' : 'hidden'}" id="card-${room.roomId}">
-                        <td colspan="10">
+                        <td colspan="10" style="padding: 0;">
                             <div class="subtable-wrap">
-                                <table class="product-subtable">
-                                    <thead>
-                                        <tr>
-                                            <th style="width: 50px;">序号</th>
-                                            <th style="min-width: 260px;">商品信息</th>
-                                            <th>累计用户支付金额</th>
-                                            <th>商品曝光人数</th>
-                                            <th>商品点击人数</th>
-                                            <th>曝光-点击转化率</th>
-                                            <th>点击-成交转化率</th>
-                                            <th>商品千次曝光成交</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${productRowsHtml}
-                                    </tbody>
-                                </table>
+                                <div class="subtable-container">
+                                    <table class="product-subtable">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 54px; text-align: left;">序号</th>
+                                                <th style="min-width: 260px; text-align: left;">商品信息</th>
+                                                <th style="text-align: right;">累计用户支付金额</th>
+                                                <th style="text-align: right;">商品曝光人数</th>
+                                                <th style="text-align: right;">商品点击人数</th>
+                                                <th style="text-align: right;">曝光-点击转化率</th>
+                                                <th style="text-align: right;">点击-成交转化率</th>
+                                                <th style="text-align: right;">商品千次曝光成交</th>
+                                                <th style="text-align: right; width: 90px;">更新时间</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            ${productRowsHtml}
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </td>
                     </tr>
