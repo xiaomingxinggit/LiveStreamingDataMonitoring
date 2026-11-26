@@ -24,10 +24,17 @@
   "build": {
     "appId": "com.livestreaming.monitoring",
     "productName": "LiveStreamingDataMonitoring",
+    "files": [
+      "src/**/*",
+      "package.json",
+      "!data/**/*",
+      "!tests/**/*"
+    ],
     "directories": {
       "output": "dist"
     },
     "win": {
+      "signAndEditExecutable": false,
       "target": [
         "nsis",
         "portable"

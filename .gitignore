@@ -1,3 +1,5 @@
 *.har
 /backend/data/stream_events.jsonl
 /backend/data/room_snapshots.json
+/backend/node_modules/
+/backend/dist/
